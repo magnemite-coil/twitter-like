@@ -1,0 +1,138 @@
+# Language - Common Lisp compiled files
+*.fasl
+*.dx32fsl
+*.dx64fsl
+*.lx32fsl
+*.lx64fsl
+*.x86f
+*.err
+*.tmp
+_build/
+
+# Language - ASDF system files
+*.asd~
+
+# Language - Quicklisp package manager
+quicklisp/
+
+# Editors - Temporary and backup files
+*~
+*.swp
+*.swo
+*.sublime-*
+
+# Editors - IDE configuration directories
+.idea/
+
+# OS - System files
+.DS_Store
+Thumbs.db
+
+# Development - Claude Code documentation
+.claude/
+CLAUDE.md
+PROGRESS.md
+
+# Development - Design documents (may contain security details)
+docs/design/
+
+# Development - Test artifacts
+var/
+/tmp/
+*.test
+*.spec
+
+# Development - Test outputs and temporary files
+handlers_part*.lisp
+login_page.html
+signup_page.html
+test_endpoints.sh
+test_rendering.sh
+test_auth.sh
+test_static.sh
+test_errors.sh
+
+# Development - Coverage reports
+coverage-report/
+*.coverage
+
+# Security - Environment Variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.env.staging
+*.env
+config.local.json
+
+# Security - Credentials & Keys
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.csr
+id_rsa*
+id_ecdsa*
+id_ed25519*
+*.secret
+secrets.json
+credentials.json
+auth.json
+service-account*.json
+
+# Security - Database
+database.yml
+database.json
+*.db-journal
+*.sqlite
+*.sqlite3
+dump.sql
+backup.sql
+
+# Security - Logs with potential sensitive data
+access.log
+error.log
+debug.log
+application.log
+*.log
+server_output.log
+test_server.log
+
+# Security - Backup files
+*.backup
+*.bak
+*.old
+*.orig
+
+# Security - Local development configurations
+*.local
+local.properties
+
+# Security - IDE specific files that might contain credentials
+.vscode/settings.json
+.idea/workspace.xml
+*.swp
+*.swo
+*~
+
+# Security - Package manager files that might contain auth
+.npmrc
+.yarnrc
+pip.conf
+requirements-local.txt
+
+# Security - Docker secrets
+docker-compose.override.yml
+.dockerignore.local
+
+# Security - SSL/TLS certificates
+ssl/
+certs/
+certificates/
+
+# Frontend - Build artifacts
+static/*
+!static/.gitkeep
