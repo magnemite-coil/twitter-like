@@ -25,11 +25,20 @@
   (when (and origin allowed-origins)
     (member origin allowed-origins :test #'string=)))
 
+(defun get-origin-header (env)
+  "ClackのenvからOriginヘッダーを取得する。
+   Lack/Clackではヘッダーは:headersキーのハッシュテーブルに格納される。
+   キーは小文字の文字列。"
+  (let ((headers (getf env :headers)))
+    (when headers
+      (gethash "origin" headers))))
+
 (defun cors-middleware (app)
   "CORS設定を追加するミドルウェア（環境変数ベース）"
   (let ((allowed-origins (parse-allowed-origins)))
     (lambda (env)
-      (let ((origin (getf env :http-origin)))
+      ;; ヘッダーは:headersハッシュテーブルから取得
+      (let ((origin (get-origin-header env)))
         (if (eq (getf env :request-method) :options)
             ;; プリフライトリクエスト
             (if (origin-allowed-p origin allowed-origins)

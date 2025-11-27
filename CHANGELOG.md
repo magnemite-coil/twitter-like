@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2025-11-27
+
+### Fixed
+
+- **Middleware Stack Integration** (src/web.lisp)
+  - Use `lack:builder` to properly integrate ningle app with Clack middleware
+  - ningle `<app>` class instances are now correctly converted to Clack-compatible functions
+
+- **CORS Middleware** (src/middleware/cors.lisp)
+  - Fix Origin header retrieval using `:headers` hash table with lowercase key
+  - Preflight requests now correctly return 200 with CORS headers for allowed origins
+
 ## [0.1.0] - 2025-11-27
 
 ### Added
@@ -62,5 +74,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Database tests (test/test-db.lisp)
   - Health check tests (test/test-health.lisp)
 
-[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/magnemite-coil/twitter-like/releases/tag/v0.1.0
