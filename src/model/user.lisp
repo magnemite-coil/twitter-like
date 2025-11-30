@@ -56,23 +56,35 @@
     (local-time:format-timestring nil timestamp
                                    :format local-time:+iso-8601-format+)))
 
+(defun slot-value-or-json-null (object slot-name)
+  "スロットの値を取得、未束縛またはNILの場合はJSON nullを返す"
+  (let ((value (if (slot-boundp object slot-name)
+                   (slot-value object slot-name)
+                   nil)))
+    ;; JzonではNILはfalseに変換されるため、nullには'nullシンボルを使う
+    (if value value 'null)))
+
 (defun user-to-public-json (user)
-  "ユーザーを公開用JSON形式（alist）に変換
+  "ユーザーを公開用JSON形式（hash-table）に変換
   register/loginレスポンス用（emailを含まない）"
   (when user
-    (list (cons "id" (mito:object-id user))
-          (cons "username" (user-username user))
-          (cons "display_name" (user-display-name user))
-          (cons "bio" (user-bio user))
-          (cons "created_at" (format-timestamp (mito:object-created-at user))))))
+    (let ((result (make-hash-table :test 'equal)))
+      (setf (gethash "id" result) (mito:object-id user))
+      (setf (gethash "username" result) (user-username user))
+      (setf (gethash "display_name" result) (slot-value-or-json-null user 'display_name))
+      (setf (gethash "bio" result) (slot-value-or-json-null user 'bio))
+      (setf (gethash "created_at" result) (format-timestamp (mito:object-created-at user)))
+      result)))
 
 (defun user-to-private-json (user)
-  "ユーザーをプライベート用JSON形式（alist）に変換
+  "ユーザーをプライベート用JSON形式（hash-table）に変換
   /api/auth/meレスポンス用（emailを含む）"
   (when user
-    (list (cons "id" (mito:object-id user))
-          (cons "username" (user-username user))
-          (cons "email" (user-email user))
-          (cons "display_name" (user-display-name user))
-          (cons "bio" (user-bio user))
-          (cons "created_at" (format-timestamp (mito:object-created-at user))))))
+    (let ((result (make-hash-table :test 'equal)))
+      (setf (gethash "id" result) (mito:object-id user))
+      (setf (gethash "username" result) (user-username user))
+      (setf (gethash "email" result) (slot-value-or-json-null user 'email))
+      (setf (gethash "display_name" result) (slot-value-or-json-null user 'display_name))
+      (setf (gethash "bio" result) (slot-value-or-json-null user 'bio))
+      (setf (gethash "created_at" result) (format-timestamp (mito:object-created-at user)))
+      result)))

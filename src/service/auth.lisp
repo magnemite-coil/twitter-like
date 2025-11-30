@@ -161,7 +161,6 @@
   ;; パスワードハッシュ化とユーザー作成
   (handler-case
       (let* ((password-hash (twitter-like.util.crypto:hash-password password))
-             ;; PBKDF2ハッシュを16進数文字列に変換して保存
              (hash-string (ironclad:byte-array-to-hex-string password-hash))
              (user (twitter-like.model.user:create-user username hash-string)))
         (values user nil))

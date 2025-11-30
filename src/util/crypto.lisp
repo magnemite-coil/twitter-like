@@ -34,21 +34,43 @@
 
 (defun hash-password (password)
   "パスワードをPBKDF2-HMAC-SHA256でハッシュ化
-  戻り値: Ironcladのpbkdf2ハッシュ構造体（ソルトを含む）"
-  (let ((salt (ironclad:make-random-salt :size +salt-size+)))
-    (ironclad:pbkdf2-hash-password
-     (flexi-streams:string-to-octets password :external-format :utf-8)
-     :salt salt
-     :iterations +pbkdf2-iterations+
-     :digest :sha256
-     :key-length +key-length+)))
+  戻り値: salt + derived-keyを連結したバイト配列
+  フォーマット: [salt (16 bytes)][derived-key (32 bytes)] = 48 bytes total"
+  (let* ((salt (ironclad:random-data +salt-size+))
+         (password-bytes (flexi-streams:string-to-octets password :external-format :utf-8))
+         (derived-key (ironclad:pbkdf2-hash-password
+                       password-bytes
+                       :salt salt
+                       :iterations +pbkdf2-iterations+
+                       :digest :sha256)))
+    ;; salt + derived-key を連結
+    (concatenate '(simple-array (unsigned-byte 8) (*))
+                 salt
+                 derived-key)))
 
-(defun verify-password (password hash)
+(defun verify-password (password stored-hash)
   "パスワードとハッシュを比較
-  定数時間比較が内部で行われる（Ironcladの実装）"
-  (ironclad:pbkdf2-check-password
-   (flexi-streams:string-to-octets password :external-format :utf-8)
-   hash))
+  stored-hash: [salt (16 bytes)][derived-key (32 bytes)]
+  定数時間比較でタイミング攻撃を防止"
+  (when (< (length stored-hash) (+ +salt-size+ +key-length+))
+    (return-from verify-password nil))
+  (let* ((salt (subseq stored-hash 0 +salt-size+))
+         (stored-key (subseq stored-hash +salt-size+))
+         (password-bytes (flexi-streams:string-to-octets password :external-format :utf-8))
+         (computed-key (ironclad:pbkdf2-hash-password
+                        password-bytes
+                        :salt salt
+                        :iterations +pbkdf2-iterations+
+                        :digest :sha256)))
+    ;; 定数時間比較
+    (constant-time-bytes= computed-key stored-key)))
+
+(defun constant-time-bytes= (a b)
+  "バイト配列の定数時間比較（タイミング攻撃対策）"
+  (and (= (length a) (length b))
+       (zerop (reduce #'logior
+                      (map 'list #'logxor a b)
+                      :initial-value 0))))
 
 (defun generate-session-id ()
   "128ビットの暗号学的に安全なセッションIDを生成
