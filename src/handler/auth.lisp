@@ -113,9 +113,12 @@
             (cdr (assoc "session_id" cookies :test #'string=)))))))
 
 (defun get-csrf-header ()
-  "リクエストヘッダーからCSRFトークンを取得"
-  (let ((env (get-env)))
-    (getf env :http-x-csrf-token)))
+  "リクエストヘッダーからCSRFトークンを取得
+   Clack標準に従い、:headersハッシュテーブルから小文字キーで取得"
+  (let* ((env (get-env))
+         (headers (getf env :headers)))
+    (when (hash-table-p headers)
+      (gethash "x-csrf-token" headers))))
 
 (defun response-with-cookie (status data cookie-value &key extra-headers)
   "Cookieを含むレスポンスを生成"
