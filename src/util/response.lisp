@@ -12,18 +12,20 @@
   (length (babel:string-to-octets string :encoding :utf-8)))
 
 (defun response-success (data &key (status 200))
-  "成功レスポンスを生成（Clack準拠のplist形式ヘッダー）"
+  "成功レスポンスを生成（Clack準拠のplist形式ヘッダー）
+   Woo/Clackではヘッダー値はすべて文字列である必要がある"
   (unless (and (>= status 200) (<= status 299))
     (error "Invalid success status code: ~A (must be 2xx)" status))
   (let* ((json-string (com.inuoe.jzon:stringify data))
          (content-length (utf8-byte-length json-string)))
     (list status
           (list :content-type "application/json; charset=utf-8"
-                :content-length content-length)
+                :content-length (write-to-string content-length))
           (list json-string))))
 
 (defun response-error (status message &key error-id details)
-  "エラーレスポンスを生成（Clack準拠のplist形式ヘッダー）"
+  "エラーレスポンスを生成（Clack準拠のplist形式ヘッダー）
+   Woo/Clackではヘッダー値はすべて文字列である必要がある"
   (unless (and (>= status 400) (<= status 599))
     (error "Invalid error status code: ~A (must be 4xx or 5xx)" status))
   (let ((error-data (make-hash-table :test 'equal)))
@@ -36,5 +38,5 @@
            (content-length (utf8-byte-length json-string)))
       (list status
             (list :content-type "application/json; charset=utf-8"
-                  :content-length content-length)
+                  :content-length (write-to-string content-length))
             (list json-string)))))

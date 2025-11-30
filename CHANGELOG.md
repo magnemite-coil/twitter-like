@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2025-12-01
+
+### Fixed
+
+- **Response Utility** (src/util/response.lisp)
+  - Fix `content-length` header value to be string instead of integer
+  - Woo/Clack requires all header values to be strings
+
+- **Security Middleware** (src/middleware/security.lisp)
+  - Add proper NIL response handling
+  - Return 500 error for invalid/NIL responses instead of implicit NIL return
+
+- **CORS Middleware** (src/middleware/cors.lisp)
+  - Add proper NIL response checking
+  - Use non-destructive list creation for response headers
+
 ## [0.1.1] - 2025-11-27
 
 ### Fixed
@@ -74,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Database tests (test/test-db.lisp)
   - Health check tests (test/test-health.lisp)
 
-[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/magnemite-coil/twitter-like/releases/tag/v0.1.0
