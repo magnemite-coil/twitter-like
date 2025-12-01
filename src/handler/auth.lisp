@@ -99,8 +99,13 @@
   (let* ((env (get-env))
          (headers (getf env :headers))
          ;; Clack標準: headersハッシュテーブルから小文字キーで取得
-         (cookie-string (when (hash-table-p headers)
-                          (gethash "cookie" headers))))
+         (raw-cookie (when (hash-table-p headers)
+                       (gethash "cookie" headers)))
+         (cookie-string (cond
+                          ((stringp raw-cookie) raw-cookie)
+                          ((and (listp raw-cookie) (stringp (first raw-cookie)))
+                           (first raw-cookie))
+                          (t raw-cookie))))
     ;; headersから取得できた場合はパース
     (or (parse-cookie-string cookie-string)
         ;; フォールバック: lack.request:request-cookies を使用
@@ -127,6 +132,7 @@
          (headers (append (list :content-type "application/json; charset=utf-8"
                                 ;; Woo/Clackはヘッダー値に文字列を要求
                                 :content-length (write-to-string content-length)
+                                :connection "close"
                                 :set-cookie cookie-value)
                           extra-headers)))
     (list status headers (list json-string))))
@@ -320,11 +326,19 @@
 
     ;; セッションの検証
     (unless session-id
+      (log-warn "Session cookie missing on /api/auth/me"
+                :context (let* ((hdrs (getf (get-env) :headers))
+                                (pairs (when (hash-table-p hdrs)
+                                         (loop for k being the hash-keys of hdrs
+                                               collect (cons k (gethash k hdrs))))))
+                           (list :|headers| pairs)))
       (return-from me-handler
         (response-error 401 "Unauthorized")))
 
     (let ((user-id (get-session-user-id session-id)))
       (unless user-id
+        (log-warn "Session not found for cookie on /api/auth/me"
+                  :context (list :|session| (mask-session-id session-id)))
         (return-from me-handler
           (response-error 401 "Unauthorized")))
 
@@ -354,6 +368,7 @@
                   (list :content-type "application/json; charset=utf-8"
                         ;; Woo/Clackはヘッダー値を文字列として扱う
                         :content-length (write-to-string content-length)
+                        :connection "close"
                         :x-csrf-token csrf-token)
                   (list json-string))))))))
 

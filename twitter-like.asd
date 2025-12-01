@@ -64,5 +64,6 @@
                 ((:file "setup")
                  (:file "test-config" :depends-on ("setup"))
                  (:file "test-db" :depends-on ("setup"))
-                 (:file "test-health" :depends-on ("setup")))))
+                 (:file "test-health" :depends-on ("setup"))
+                 (:file "test-auth" :depends-on ("setup")))))
   :perform (test-op (op c) (symbol-call :rove :run c)))

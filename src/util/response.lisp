@@ -20,7 +20,8 @@
          (content-length (utf8-byte-length json-string)))
     (list status
           (list :content-type "application/json; charset=utf-8"
-                :content-length (write-to-string content-length))
+                :content-length (write-to-string content-length)
+                :connection "close")
           (list json-string))))
 
 (defun response-error (status message &key error-id details)
@@ -38,5 +39,6 @@
            (content-length (utf8-byte-length json-string)))
       (list status
             (list :content-type "application/json; charset=utf-8"
-                  :content-length (write-to-string content-length))
+                  :content-length (write-to-string content-length)
+                  :connection "close")
             (list json-string)))))
