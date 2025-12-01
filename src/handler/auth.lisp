@@ -125,7 +125,8 @@
   (let* ((json-string (com.inuoe.jzon:stringify data))
          (content-length (length (babel:string-to-octets json-string :encoding :utf-8)))
          (headers (append (list :content-type "application/json; charset=utf-8"
-                                :content-length content-length
+                                ;; Woo/Clackはヘッダー値に文字列を要求
+                                :content-length (write-to-string content-length)
                                 :set-cookie cookie-value)
                           extra-headers)))
     (list status headers (list json-string))))
@@ -344,14 +345,15 @@
             (response-error 401 "Unauthorized")))
 
         ;; CSRFトークンをヘッダーに含めて返す
-        (let* ((csrf-token (get-csrf-token session-id))
-               (response-data (make-hash-table :test 'equal)))
+          (let* ((csrf-token (get-csrf-token session-id))
+                 (response-data (make-hash-table :test 'equal)))
           (setf (gethash "user" response-data) (user-to-private-json user))
           (let* ((json-string (com.inuoe.jzon:stringify response-data))
                  (content-length (length (babel:string-to-octets json-string :encoding :utf-8))))
             (list 200
                   (list :content-type "application/json; charset=utf-8"
-                        :content-length content-length
+                        ;; Woo/Clackはヘッダー値を文字列として扱う
+                        :content-length (write-to-string content-length)
                         :x-csrf-token csrf-token)
                   (list json-string))))))))
 
