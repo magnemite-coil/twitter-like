@@ -50,5 +50,6 @@
 
 (defun ensure-db-connected ()
   "データベース接続を確認、未接続なら接続"
-  (unless (and *db-connection* (mito.connection:connected-p))
-    (connect-db)))
+  (if (and *db-connection* (mito.connection:connected-p))
+      *db-connection*
+      (connect-db)))

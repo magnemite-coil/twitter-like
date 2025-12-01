@@ -6,6 +6,8 @@
   (:import-from :twitter-like.config
                 :load-config
                 :get-config)
+  (:import-from :red
+                :flushdb)
   (:export :setup-test-env
            :teardown-test-env
            :cleanup-test-data
@@ -43,7 +45,7 @@
   ;; Redis のテストデータをクリア（テスト用DB番号1のみ）
   (handler-case
       (when twitter-like.middleware.session:*redis-connection*
-        (redis:flushdb twitter-like.middleware.session:*redis-connection*)
+        (flushdb)
         (format t "✓ Redis test data cleared~%"))
     (error (e)
       (format t "⚠ Failed to clear Redis test data: ~A~%" e)))

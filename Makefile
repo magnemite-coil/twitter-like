@@ -1,5 +1,7 @@
 .PHONY: test test-config test-db test-health test-setup test-teardown test-clean
 
+CACHE_DIR := $(PWD)/var/cache
+
 # テスト用データベースセットアップ
 test-setup:
 	@echo "Setting up test database..."
@@ -16,7 +18,10 @@ test-teardown:
 test: test-setup
 	@echo "Running all tests..."
 	@if [ -f .env.test ]; then \
-		sbcl --eval '(cl-dotenv:load-env :file ".env.test")' \
+		mkdir -p $(CACHE_DIR) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) sbcl --eval '(ql:quickload :cl-dotenv)' \
+		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
+		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
 		     --eval '(asdf:test-system :twitter-like)' \
 		     --quit; \
@@ -29,7 +34,10 @@ test: test-setup
 test-config:
 	@echo "Running config tests..."
 	@if [ -f .env.test ]; then \
-		sbcl --eval '(cl-dotenv:load-env :file ".env.test")' \
+		mkdir -p $(CACHE_DIR) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) sbcl --eval '(ql:quickload :cl-dotenv)' \
+		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
+		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
 		     --eval '(rove:run :twitter-like-test.config)' \
 		     --quit; \
@@ -42,7 +50,10 @@ test-config:
 test-db: test-setup
 	@echo "Running database tests..."
 	@if [ -f .env.test ]; then \
-		sbcl --eval '(cl-dotenv:load-env :file ".env.test")' \
+		mkdir -p $(CACHE_DIR) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) sbcl --eval '(ql:quickload :cl-dotenv)' \
+		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
+		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
 		     --eval '(rove:run :twitter-like-test.db)' \
 		     --quit; \
@@ -55,7 +66,10 @@ test-db: test-setup
 test-health: test-setup
 	@echo "Running health check tests..."
 	@if [ -f .env.test ]; then \
-		sbcl --eval '(cl-dotenv:load-env :file ".env.test")' \
+		mkdir -p $(CACHE_DIR) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) sbcl --eval '(ql:quickload :cl-dotenv)' \
+		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
+		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
 		     --eval '(rove:run :twitter-like-test.health)' \
 		     --quit; \

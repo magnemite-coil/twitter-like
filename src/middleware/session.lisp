@@ -65,7 +65,7 @@
 (defun disconnect-redis ()
   "Redis接続を切断"
   (when *redis-connection*
-    (redis:disconnect *redis-connection*)
+    (redis:disconnect)
     (setf *redis-connection* nil)
     (format t "✓ Redis disconnected~%")))
 

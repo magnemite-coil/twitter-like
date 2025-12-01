@@ -2,8 +2,7 @@
   (:use :cl :rove)
   (:import-from :twitter-like.config
                 :load-config
-                :get-config
-                :validate-config))
+                :get-config))
 
 (in-package :twitter-like-test.config)
 
@@ -11,7 +10,7 @@
   (testing "Configuration loading"
     ;; .env.test を読み込み
     (when (probe-file ".env.test")
-      (cl-dotenv:load-env :file ".env.test"))
+      (cl-dotenv:load-env ".env.test"))
 
     (twitter-like.config:load-config)
 
@@ -27,10 +26,10 @@
   (testing "Configuration validation"
     ;; .env.test を読み込み
     (when (probe-file ".env.test")
-      (cl-dotenv:load-env :file ".env.test"))
+      (cl-dotenv:load-env ".env.test"))
 
     (twitter-like.config:load-config)
 
     ;; 設定検証が成功することを確認
-    (ok (twitter-like.config:validate-config)
+    (ok (twitter-like.config::validate-config)
         "Configuration should be valid")))
