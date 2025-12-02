@@ -11,6 +11,15 @@
   "文字列のUTF-8エンコード時のバイト長を計算"
   (length (babel:string-to-octets string :encoding :utf-8)))
 
+(defun content-length-value (length)
+  "サーバ実装に応じたContent-Length値を返す。
+  - Woo では文字列が必須
+  - Hunchentoot では整数が期待されるため APP_ENV=test では整数を返す"
+  (let ((env (twitter-like.config:get-config "app-env")))
+    (if (string= env "test")
+        length
+        (write-to-string length))))
+
 (defun response-success (data &key (status 200))
   "成功レスポンスを生成（Clack準拠のplist形式ヘッダー）
    Woo/Clackではヘッダー値はすべて文字列である必要がある"
@@ -20,7 +29,7 @@
          (content-length (utf8-byte-length json-string)))
     (list status
           (list :content-type "application/json; charset=utf-8"
-                :content-length (write-to-string content-length)
+                :content-length (content-length-value content-length)
                 :connection "close")
           (list json-string))))
 
@@ -39,6 +48,6 @@
            (content-length (utf8-byte-length json-string)))
       (list status
             (list :content-type "application/json; charset=utf-8"
-                  :content-length (write-to-string content-length)
+                  :content-length (content-length-value content-length)
                   :connection "close")
             (list json-string)))))

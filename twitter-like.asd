@@ -4,6 +4,8 @@
   :license "MIT"
   :depends-on (:caveman2
                :clack
+               :clack-handler-hunchentoot
+               :hunchentoot
                :woo
                :mito
                :sxql

@@ -1,6 +1,7 @@
 .PHONY: test test-config test-db test-health test-setup test-teardown test-clean
 
 CACHE_DIR := $(PWD)/var/cache
+QL_LOCAL_PROJECTS := $(PWD)/vendor
 
 # テスト用データベースセットアップ
 test-setup:
@@ -18,8 +19,8 @@ test-teardown:
 test: test-setup
 	@echo "Running all tests..."
 	@if [ -f .env.test ]; then \
-		mkdir -p $(CACHE_DIR) && \
-		XDG_CACHE_HOME=$(CACHE_DIR) sbcl --eval '(ql:quickload :cl-dotenv)' \
+		mkdir -p $(CACHE_DIR) $(QL_LOCAL_PROJECTS) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) QL_LOCAL_PROJECTS=$(QL_LOCAL_PROJECTS) sbcl --eval '(ql:quickload :cl-dotenv)' \
 		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
@@ -34,8 +35,8 @@ test: test-setup
 test-config:
 	@echo "Running config tests..."
 	@if [ -f .env.test ]; then \
-		mkdir -p $(CACHE_DIR) && \
-		XDG_CACHE_HOME=$(CACHE_DIR) sbcl --eval '(ql:quickload :cl-dotenv)' \
+		mkdir -p $(CACHE_DIR) $(QL_LOCAL_PROJECTS) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) QL_LOCAL_PROJECTS=$(QL_LOCAL_PROJECTS) sbcl --eval '(ql:quickload :cl-dotenv)' \
 		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
@@ -50,8 +51,8 @@ test-config:
 test-db: test-setup
 	@echo "Running database tests..."
 	@if [ -f .env.test ]; then \
-		mkdir -p $(CACHE_DIR) && \
-		XDG_CACHE_HOME=$(CACHE_DIR) sbcl --eval '(ql:quickload :cl-dotenv)' \
+		mkdir -p $(CACHE_DIR) $(QL_LOCAL_PROJECTS) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) QL_LOCAL_PROJECTS=$(QL_LOCAL_PROJECTS) sbcl --eval '(ql:quickload :cl-dotenv)' \
 		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
@@ -66,8 +67,8 @@ test-db: test-setup
 test-health: test-setup
 	@echo "Running health check tests..."
 	@if [ -f .env.test ]; then \
-		mkdir -p $(CACHE_DIR) && \
-		XDG_CACHE_HOME=$(CACHE_DIR) sbcl --eval '(ql:quickload :cl-dotenv)' \
+		mkdir -p $(CACHE_DIR) $(QL_LOCAL_PROJECTS) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) QL_LOCAL_PROJECTS=$(QL_LOCAL_PROJECTS) sbcl --eval '(ql:quickload :cl-dotenv)' \
 		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \

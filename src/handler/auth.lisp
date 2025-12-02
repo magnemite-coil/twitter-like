@@ -131,7 +131,7 @@
          (content-length (length (babel:string-to-octets json-string :encoding :utf-8)))
          (headers (append (list :content-type "application/json; charset=utf-8"
                                 ;; Woo/Clackはヘッダー値に文字列を要求
-                                :content-length (write-to-string content-length)
+                                :content-length (twitter-like.util.response::content-length-value content-length)
                                 :connection "close"
                                 :set-cookie cookie-value)
                           extra-headers)))
@@ -367,7 +367,7 @@
             (list 200
                   (list :content-type "application/json; charset=utf-8"
                         ;; Woo/Clackはヘッダー値を文字列として扱う
-                        :content-length (write-to-string content-length)
+                        :content-length (twitter-like.util.response::content-length-value content-length)
                         :connection "close"
                         :x-csrf-token csrf-token)
                   (list json-string))))))))
