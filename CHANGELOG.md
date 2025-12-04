@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2025-12-04
+
+### Fixed
+
+- **Vendor: fast-http** (vendor/fast-http/src/parser.lisp)
+  - Add `message-complete-safe` function to absorb `CALLBACK-ERROR` gracefully
+  - Wrap `callback-data :body` calls in `handler-case` to prevent parser crashes
+  - Handle cases where socket data handler is already cleared after 429 responses
+
+- **Vendor: Woo** (vendor/woo/src/response.lisp)
+  - Add HTTP status codes: 425 (Too Early), 428 (Precondition Required), 429 (Too Many Requests), 431 (Request Header Fields Too Large)
+  - Make `response-headers-bytes` defensive: dynamically build status line when status code is not in lookup table (fixes 429 returning 500)
+  - Add nil check for header keys in response header loop
+
 ## [0.1.2] - 2025-12-01
 
 ### Fixed
@@ -90,7 +104,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Database tests (test/test-db.lisp)
   - Health check tests (test/test-health.lisp)
 
-[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/magnemite-coil/twitter-like/releases/tag/v0.1.0
