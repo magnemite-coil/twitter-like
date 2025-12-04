@@ -466,13 +466,19 @@ us a never-ending header that the application keeps buffering.")
         (let ((body-end (+ start (http-content-length http))))
           (declare (dynamic-extent body-end))
           (setf (http-content-length http) 0)
-          (callback-data :body http callbacks data start body-end)
+          (handler-case
+              (callback-data :body http callbacks data start body-end)
+            (callback-error (e)
+              (declare (ignore e))))
           (setf (http-mark http) body-end)
           (values body-end t))
         ;; still needs to read
         (progn
           (decf (http-content-length http) readable-count)
-          (callback-data :body http callbacks data start end)
+          (handler-case
+              (callback-data :body http callbacks data start end)
+            (callback-error (e)
+              (declare (ignore e))))
           (setf (http-mark http) end)
           (values end nil)))))
 
@@ -492,44 +498,59 @@ us a never-ending header that the application keeps buffering.")
       (return-from http-message-needs-eof-p nil))
     T))
 
+(defun-speedy message-complete-safe (http callbacks)
+  "Run :message-complete defensively and always reset parser state.
+
+If a downstream handler (e.g. socket data handler) has already been cleared,
+the callback may signal a CALLBACK-ERROR. We absorb it so the parser can move
+on instead of crashing."
+  (handler-case
+      (callback-notify :message-complete http callbacks)
+    (callback-error (e)
+      (declare (ignore e))))
+  (setf (http-state http) +state-first-line+))
+
 (defun-speedy parse-body (http callbacks data start end requestp)
   (declare (type http http)
            (type simple-byte-vector data)
            (type pointer start end))
-  (macrolet ((message-complete ()
-               `(progn
-                  (callback-notify :message-complete http callbacks)
-                  (setf (http-state http) +state-first-line+))))
-    (case (http-content-length http)
-      (0
-       ;; Content-Length header given but zero: Content-Length: 0\r\n
-       (message-complete)
-       start)
-      ('nil
-       (if (or requestp
-               (not (http-message-needs-eof-p http)))
-           ;; Assume content-length 0 - read the next
-           (progn
-             (message-complete)
-             ;; By returning "start", we'll continue
-             ;; to parse the next request in case if
-             ;; HTTP pipelining is used. Probably
-             ;; we need some way to enable (or disable)
-             ;; HTTP pipelining support.
-             start)
-           ;; read until EOF
-           (progn
-             (callback-data :body http callbacks data start end)
-             (setf (http-mark http) end)
-	     (message-complete)
-             end)))
-      (otherwise
-       ;; Content-Length header given and non-zero
-       (multiple-value-bind (next completedp)
-           (read-body-data http callbacks data start end)
-         (when completedp
-           (message-complete))
-         next)))))
+  (case (http-content-length http)
+    (0
+     ;; Content-Length header given but zero: Content-Length: 0\r\n
+     (message-complete-safe http callbacks)
+     start)
+    ('nil
+     (if (or requestp
+             (not (http-message-needs-eof-p http)))
+         ;; Assume content-length 0 - read the next
+         (progn
+           (message-complete-safe http callbacks)
+           ;; By returning "start", we'll continue
+           ;; to parse the next request in case if
+           ;; HTTP pipelining is used. Probably
+           ;; we need some way to enable (or disable)
+           ;; HTTP pipelining support.
+           start)
+         ;; read until EOF
+         (progn
+           (handler-case
+               (callback-data :body http callbacks data start end)
+             (callback-error (e)
+               (declare (ignore e))))
+           (setf (http-mark http) end)
+	   (message-complete-safe http callbacks)
+           end)))
+    (otherwise
+     ;; Content-Length header given and non-zero
+     (multiple-value-bind (next completedp)
+         (handler-case
+             (read-body-data http callbacks data start end)
+           (callback-error (e)
+             (declare (ignore e))
+             (values end t)))
+       (when completedp
+         (message-complete-safe http callbacks))
+       next))))
 
 (defun-speedy parse-chunked-body (http callbacks data start end)
   (declare (type http http)
@@ -619,7 +640,7 @@ us a never-ending header that the application keeps buffering.")
          trailing-headers
            (return-from parse-chunked-body
              (prog1 (parse-headers http callbacks data (pos) end)
-               (callback-notify :message-complete http callbacks)))))
+               (message-complete-safe http callbacks)))))
       (error 'eof)))
 
 (defun-speedy parse-request (http callbacks data &key (start 0) end (head-request nil))
@@ -710,8 +731,7 @@ us a never-ending header that the application keeps buffering.")
 
            ;; Exit, the rest of the connect is in a different protocol.
            (when (http-upgrade-p http)
-             (setf (http-state http) +state-first-line+)
-             (callback-notify :message-complete http callbacks)
+             (message-complete-safe http callbacks)
              (return-from parse-request (pos)))
 
            (setf (http-state http)
@@ -787,8 +807,7 @@ us a never-ending header that the application keeps buffering.")
                      +state-body+))
 
 	   (when head-request
-	     (callback-notify :message-complete http callbacks)
-	     (setf (http-state http) +state-first-line+)
+	     (message-complete-safe http callbacks)
 	     (return-from parse-response (pos)))
 
          body

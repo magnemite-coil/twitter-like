@@ -73,7 +73,11 @@
        (422 "Unprocessable Entity")
        (423 "Locked")
        (424 "Failed Dependency")
+       (425 "Too Early")
+       (428 "Precondition Required")
+       (429 "Too Many Requests")
        (426 "Upgrade Required")
+       (431 "Request Header Fields Too Large")
        (451 "Unavailable For Legal Reasons")))
     (T
      (case code
@@ -182,8 +186,19 @@
       (write-int-to-date sec 23)))
   *date-header*)
 
+
 (defun response-headers-bytes (socket status headers &optional keep-alive-p)
-  (wev:write-socket-data socket (gethash status *status-line*))
+  "Defensive header writer.
+
+STATUS が整数でない場合は 500 にフォールバックするが、整数ならテーブルに
+なくても動的にステータス行を組み立てて返す。これにより 429 などのレスポンス
+でステータス行が NIL になって 500 を返してしまう問題を防ぐ。"
+  (let* ((code (if (integerp status) status 500))
+         (text (or (status-code-to-text code) "Internal Server Error"))
+         (status-line (or (gethash code *status-line*)
+                          (trivial-utf-8:string-to-utf-8-bytes
+                           (format nil "HTTP/1.1 ~A ~A~C~C" code text #\Return #\Linefeed)))))
+    (wev:write-socket-data socket status-line))
   ;; Send default headers
   (wev:write-socket-data socket #.(string-to-utf-8-bytes "Date: "))
   (write-socket-string socket (the simple-string (current-rfc-1123-timestamp)))
@@ -196,7 +211,7 @@
         (format nil "Connection: keep-alive~C~C" #\Return #\Linefeed))))
 
   (loop for (k v) on headers by #'cddr
-        when v
+        when (and k v)
           do (write-socket-string socket (format nil "~:(~A~): ~A" k v))
              (write-socket-crlf socket)))
 
