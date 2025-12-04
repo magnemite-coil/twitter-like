@@ -50,14 +50,20 @@
 
 (defun load-config ()
   "環境変数を読み込んで設定ハッシュテーブルに格納"
-  ;; .envファイルを読み込み（開発環境のみ、エラーハンドリング付き）
-  (handler-case
-      (when (probe-file ".env")
-        (cl-dotenv:load-env ".env")
-        (format t "✓ .env file loaded~%"))
-    (error (e)
-      (format t "⚠ Failed to load .env file: ~A~%" e)
-      (format t "  Falling back to environment variables~%")))
+  ;; .env*.test/.env のロード
+  ;; APP_ENVがtestなら .env.test を優先し、それ以外は .env を読む
+  (let ((app-env (or (uiop:getenv "APP_ENV") "development")))
+    (handler-case
+        (cond
+          ((and (string= app-env "test") (probe-file ".env.test"))
+           (cl-dotenv:load-env ".env.test")
+           (format t "✓ .env.test file loaded~%"))
+          ((probe-file ".env")
+           (cl-dotenv:load-env ".env")
+           (format t "✓ .env file loaded~%")))
+      (error (e)
+        (format t "⚠ Failed to load env file: ~A~%" e)
+        (format t "  Falling back to environment variables~%"))))
 
   ;; 基本設定（デフォルト値あり）
   (setf (gethash "app-env" *config*) (or (uiop:getenv "APP_ENV") "development"))

@@ -11,7 +11,7 @@
   (testing "Database connection"
     ;; .env.test を読み込み
     (when (probe-file ".env.test")
-      (cl-dotenv:load-env :file ".env.test"))
+      (cl-dotenv:load-env ".env.test"))
 
     (twitter-like.config:load-config)
 

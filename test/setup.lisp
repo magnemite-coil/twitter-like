@@ -6,6 +6,10 @@
   (:import-from :twitter-like.config
                 :load-config
                 :get-config)
+  (:import-from :mito
+                :ensure-table-exists)
+  (:import-from :red
+                :flushdb)
   (:export :setup-test-env
            :teardown-test-env
            :cleanup-test-data
@@ -30,7 +34,10 @@
     (error "APP_ENV must be 'test' for running tests"))
 
   ;; サーバー起動（テスト用ポート）
-  (setf *test-server* (twitter-like:start :port (twitter-like.config:get-config "app-port"))))
+  (setf *test-server* (twitter-like:start :port (twitter-like.config:get-config "app-port")))
+
+  ;; 必要テーブルが存在することを保証
+  (ensure-table-exists 'twitter-like.model.user:user))
 
 (defun teardown-test-env ()
   "テスト環境をクリーンアップ"
@@ -43,7 +50,7 @@
   ;; Redis のテストデータをクリア（テスト用DB番号1のみ）
   (handler-case
       (when twitter-like.middleware.session:*redis-connection*
-        (redis:flushdb twitter-like.middleware.session:*redis-connection*)
+        (flushdb)
         (format t "✓ Redis test data cleared~%"))
     (error (e)
       (format t "⚠ Failed to clear Redis test data: ~A~%" e)))

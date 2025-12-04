@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-11-29
+
+### Added
+
+- **User Authentication System** (OWASP 2024-2025 Compliant)
+  - PBKDF2-HMAC-SHA256 password hashing with 600,000 iterations (src/util/crypto.lisp)
+  - 128-bit salt, 256-bit output, constant-time comparison for timing attack prevention
+  - Cryptographically secure session ID and CSRF token generation (128-bit CSPRNG)
+  - Session ID masking for secure logging
+
+- **User Model** (src/model/user.lisp)
+  - Mito ORM table definition with username, password, email, display_name, bio fields
+  - UNIQUE constraint on username
+  - Public and private JSON conversion functions
+
+- **Session Management** (src/middleware/session.lisp)
+  - Redis Hash-based session storage
+  - Absolute timeout (7 days) and idle timeout (30 minutes)
+  - Session rotation on login (session fixation attack prevention)
+  - Secure cookie construction (HttpOnly, Secure, SameSite=Lax)
+
+- **Authentication Service** (src/service/auth.lisp)
+  - Username validation (3-20 characters, alphanumeric + underscore)
+  - Password validation (15-128 characters)
+  - IP-based rate limiting (login: 5/15min, register: 3/1hr)
+  - Account lockout after 5 failed attempts (30 minute lock)
+  - Timing attack protection with dummy hash verification
+
+- **Authentication Endpoints** (src/handler/auth.lisp)
+  - POST /api/auth/register - User registration with auto-login
+  - POST /api/auth/login - Login with session rotation
+  - POST /api/auth/logout - Logout with CSRF validation
+  - GET /api/auth/me - Current user info with X-CSRF-Token header
+
+- **Authentication Tests** (test/test-auth.lisp)
+  - Register -> me -> logout flow test with CSRF validation
+  - Login rate limit test (429 after threshold)
+
+## [0.1.3] - 2025-12-04
+
+### Fixed
+
+- **Vendor: fast-http** (vendor/fast-http/src/parser.lisp)
+  - Add `message-complete-safe` function to absorb `CALLBACK-ERROR` gracefully
+  - Wrap `callback-data :body` calls in `handler-case` to prevent parser crashes
+  - Handle cases where socket data handler is already cleared after 429 responses
+
+- **Vendor: Woo** (vendor/woo/src/response.lisp)
+  - Add HTTP status codes: 425 (Too Early), 428 (Precondition Required), 429 (Too Many Requests), 431 (Request Header Fields Too Large)
+  - Make `response-headers-bytes` defensive: dynamically build status line when status code is not in lookup table (fixes 429 returning 500)
+  - Add nil check for header keys in response header loop
+
+## [0.1.2] - 2025-12-01
+
+### Fixed
+
+- **Response Utility** (src/util/response.lisp)
+  - Fix `content-length` header value to be string instead of integer
+  - Woo/Clack requires all header values to be strings
+
+- **Security Middleware** (src/middleware/security.lisp)
+  - Add proper NIL response handling
+  - Return 500 error for invalid/NIL responses instead of implicit NIL return
+
+- **CORS Middleware** (src/middleware/cors.lisp)
+  - Add proper NIL response checking
+  - Use non-destructive list creation for response headers
+
 ## [0.1.1] - 2025-11-27
 
 ### Fixed
@@ -74,6 +142,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Database tests (test/test-db.lisp)
   - Health check tests (test/test-health.lisp)
 
-[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.3...v0.2.0
+[0.1.3]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/magnemite-coil/twitter-like/releases/tag/v0.1.0

@@ -31,6 +31,7 @@
 
   ;; ルートを登録
   (twitter-like.handler.health:register-health-routes *ningle-app*)
+  (twitter-like.handler.auth:register-auth-routes *ningle-app*)
 
   ;; lack:builderでミドルウェアスタックを構築
   ;; builderの引数は外側から内側の順（リクエスト処理順）

@@ -45,14 +45,18 @@
         (twitter-like.web:build-app)
 
         ;; 5. サーバー起動
-        (let ((actual-port (or port (twitter-like.config:get-config "app-port"))))
+        (let* ((actual-port (or port (twitter-like.config:get-config "app-port")))
+               (use-hunchentoot (string= (twitter-like.config:get-config "app-env") "test"))
+               (server-backend (if use-hunchentoot :hunchentoot :woo)))
           (setf *server* (clack:clackup twitter-like.web:*app*
                                         :port actual-port
-                                        :server :woo))
+                                        :server server-backend))
 
           (format t "~%========================================~%")
           (format t "✓ Server started on http://localhost:~A~%" actual-port)
-          (format t "  Environment: ~A~%" (twitter-like.config:get-config "app-env"))
+          (format t "  Environment: ~A (server: ~A)~%"
+                  (twitter-like.config:get-config "app-env")
+                  server-backend)
           (format t "========================================~%~%")
 
           *server*))

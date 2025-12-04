@@ -34,7 +34,11 @@
       (gethash "origin" headers))))
 
 (defun cors-middleware (app)
-  "CORS設定を追加するミドルウェア（環境変数ベース）"
+  "CORS設定を追加するミドルウェア（環境変数ベース）
+   Woo/Clackのベストプラクティス:
+   - responseがNILの場合は適切にハンドリング
+   - 破壊的変更を避けて新しいリストを返す
+   - すべてのヘッダー値は文字列である必要がある"
   (let ((allowed-origins (parse-allowed-origins)))
     (lambda (env)
       ;; ヘッダーは:headersハッシュテーブルから取得
@@ -56,11 +60,16 @@
                       (list "Forbidden")))
             ;; 通常のリクエスト
             (let ((response (funcall app env)))
-              (when (origin-allowed-p origin allowed-origins)
-                ;; レスポンスヘッダーにCORSヘッダーを追加（plist形式）
-                (let ((headers (second response)))
-                  (setf headers (append headers
-                                        (list :access-control-allow-origin origin
-                                              :access-control-allow-credentials "true")))
-                  (setf (second response) headers)))
-              response))))))
+              ;; レスポンスが正常な場合のみCORSヘッダーを追加
+              (if (and response (listp response) (>= (length response) 3)
+                       (origin-allowed-p origin allowed-origins))
+                  ;; 新しいリストを作成して返す（破壊的変更を避ける）
+                  (let* ((status (first response))
+                         (headers (second response))
+                         (body (third response))
+                         (new-headers (append (or headers '())
+                                              (list :access-control-allow-origin origin
+                                                    :access-control-allow-credentials "true"))))
+                    (list status new-headers body))
+                  ;; CORSヘッダー不要またはレスポンスが異常な場合はそのまま返す
+                  response)))))))
