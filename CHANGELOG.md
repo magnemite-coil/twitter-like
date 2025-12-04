@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-11-29
+
+### Added
+
+- **User Authentication System** (OWASP 2024-2025 Compliant)
+  - PBKDF2-HMAC-SHA256 password hashing with 600,000 iterations (src/util/crypto.lisp)
+  - 128-bit salt, 256-bit output, constant-time comparison for timing attack prevention
+  - Cryptographically secure session ID and CSRF token generation (128-bit CSPRNG)
+  - Session ID masking for secure logging
+
+- **User Model** (src/model/user.lisp)
+  - Mito ORM table definition with username, password, email, display_name, bio fields
+  - UNIQUE constraint on username
+  - Public and private JSON conversion functions
+
+- **Session Management** (src/middleware/session.lisp)
+  - Redis Hash-based session storage
+  - Absolute timeout (7 days) and idle timeout (30 minutes)
+  - Session rotation on login (session fixation attack prevention)
+  - Secure cookie construction (HttpOnly, Secure, SameSite=Lax)
+
+- **Authentication Service** (src/service/auth.lisp)
+  - Username validation (3-20 characters, alphanumeric + underscore)
+  - Password validation (15-128 characters)
+  - IP-based rate limiting (login: 5/15min, register: 3/1hr)
+  - Account lockout after 5 failed attempts (30 minute lock)
+  - Timing attack protection with dummy hash verification
+
+- **Authentication Endpoints** (src/handler/auth.lisp)
+  - POST /api/auth/register - User registration with auto-login
+  - POST /api/auth/login - Login with session rotation
+  - POST /api/auth/logout - Logout with CSRF validation
+  - GET /api/auth/me - Current user info with X-CSRF-Token header
+
+- **Authentication Tests** (test/test-auth.lisp)
+  - Register -> me -> logout flow test with CSRF validation
+  - Login rate limit test (429 after threshold)
+
 ## [0.1.3] - 2025-12-04
 
 ### Fixed
@@ -104,7 +142,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Database tests (test/test-db.lisp)
   - Health check tests (test/test-health.lisp)
 
-[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/magnemite-coil/twitter-like/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/magnemite-coil/twitter-like/compare/v0.1.0...v0.1.1
