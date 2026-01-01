@@ -12,6 +12,8 @@
                 :tweet-user-id)
   (:import-from :twitter-like.util.logger
                 :log-error)
+  (:import-from :twitter-like.util.time
+                :get-unix-time)
   (:import-from :ironclad
                 :byte-array-to-hex-string
                 :random-data)
@@ -37,10 +39,6 @@
 
 (defconstant +tweet-rate-window+ 3600
   "ツイートレート制限ウィンドウ: 1時間（秒）")
-
-(defun get-unix-time ()
-  "Unix timestamp（1970年1月1日からの秒数）を取得"
-  (- (get-universal-time) 2208988800))
 
 ;;; Redis Luaスクリプト（原子的レート制限）
 ;;; ZREMRANGEBYSCORE → ZCARD → 条件付きZADD → EXPIRE を一括実行

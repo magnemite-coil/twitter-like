@@ -2,9 +2,8 @@
 
 (defpackage twitter-like.model.tweet
   (:use :cl :mito)
-  (:import-from :local-time
-                :format-timestring
-                :+iso-8601-format+)
+  (:import-from :twitter-like.util.time
+                :format-timestamp)
   (:import-from :twitter-like.model.user
                 :user
                 :find-user-by-id
@@ -23,8 +22,10 @@
 (mito:deftable tweet ()
   ((user-id :col-type :integer
             :col-name "user_id"
+            :not-null t
             :accessor tweet-user-id)
    (content :col-type (:varchar 140)
+            :not-null t
             :accessor tweet-content)))
 
 (defun find-tweet-by-id (id)
@@ -50,12 +51,6 @@
 (defun delete-tweet-record (tweet)
   "ツイートを削除"
   (mito:delete-dao tweet))
-
-(defun format-timestamp (timestamp)
-  "タイムスタンプをISO 8601形式に変換"
-  (when timestamp
-    (local-time:format-timestring nil timestamp
-                                   :format local-time:+iso-8601-format+)))
 
 (defun tweet-to-json (tweet &key include-user)
   "ツイートをJSON形式（hash-table）に変換

@@ -1,8 +1,7 @@
 (defpackage twitter-like.model.user
   (:use :cl :mito)
-  (:import-from :local-time
-                :format-timestring
-                :+iso-8601-format+)
+  (:import-from :twitter-like.util.time
+                :format-timestamp)
   (:export :user
            :user-id
            :user-username
@@ -22,8 +21,10 @@
 
 (mito:deftable user ()
   ((username :col-type (:varchar 20)
+             :not-null t
              :accessor user-username)
    (password :col-type (:varchar 255)
+             :not-null t
              :accessor user-password)
    (email :col-type (or (:varchar 255) :null)
           :accessor user-email)
@@ -49,12 +50,6 @@
                    :email email
                    :display_name display-name
                    :bio bio))
-
-(defun format-timestamp (timestamp)
-  "タイムスタンプをISO 8601形式に変換"
-  (when timestamp
-    (local-time:format-timestring nil timestamp
-                                   :format local-time:+iso-8601-format+)))
 
 (defun slot-value-or-json-null (object slot-name)
   "スロットの値を取得、未束縛またはNILの場合はJSON nullを返す"
