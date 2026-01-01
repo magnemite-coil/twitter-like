@@ -311,11 +311,12 @@
              (stored-token (get-csrf-token session-id)))
         (unless (and submitted-token stored-token
                      (constant-time-string= submitted-token stored-token))
-          (let ((error-id (log-warn "Invalid CSRF token on logout"
-                                    :context (list :|user_id| user-id
-                                                   :|session| (mask-session-id session-id)))))
-            (return-from logout-handler
-              (response-error 403 "Invalid CSRF token" :error-id error-id)))))
+          ;; クライアント起因エラー: log-warn、error_idなし
+          (log-warn "Invalid CSRF token on logout"
+                    :context (list :|user_id| user-id
+                                   :|session| (mask-session-id session-id)))
+          (return-from logout-handler
+            (response-error 403 "Invalid CSRF token"))))
 
       ;; セッション削除
       (delete-session session-id)
