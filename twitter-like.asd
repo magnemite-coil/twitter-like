@@ -42,16 +42,19 @@
                  (:module "model"
                   :depends-on ("config" "db")
                   :components
-                  ((:file "user")))                            ; ユーザーモデル
+                  ((:file "user")
+                   (:file "tweet")))                           ; ツイートモデル
                  (:module "service"
                   :depends-on ("config" "model" "middleware" "util")
                   :components
-                  ((:file "auth")))                            ; 認証サービス
+                  ((:file "auth")
+                   (:file "tweet")))                           ; ツイートサービス
                  (:module "handler"
                   :depends-on ("config" "util" "db" "middleware" "model" "service")
                   :components
                   ((:file "health")
-                   (:file "auth")))                            ; 認証ハンドラー
+                   (:file "auth")
+                   (:file "tweet")))                           ; ツイートハンドラー
                  (:file "web" :depends-on ("config" "util" "middleware" "handler"))  ; handlerに依存
                  (:file "main" :depends-on ("config" "db" "web" "handler" "middleware" "util" "model" "service")))))
   :description "2012年頃のTwitterをリバースエンジニアリングするプロジェクト"
@@ -67,5 +70,6 @@
                  (:file "test-config" :depends-on ("setup"))
                  (:file "test-db" :depends-on ("setup"))
                  (:file "test-health" :depends-on ("setup"))
-                 (:file "test-auth" :depends-on ("setup")))))
+                 (:file "test-auth" :depends-on ("setup"))
+                 (:file "test-tweet" :depends-on ("setup")))))
   :perform (test-op (op c) (symbol-call :rove :run c)))

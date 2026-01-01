@@ -10,10 +10,19 @@
                 :ensure-table-exists)
   (:import-from :red
                 :flushdb)
+  (:import-from :dexador)
+  (:import-from :dexador.error)
+  (:import-from :com.inuoe.jzon
+                :stringify)
   (:export :setup-test-env
            :teardown-test-env
            :cleanup-test-data
-           :get-test-base-url))
+           :get-test-base-url
+           ;; 共通HTTPヘルパー
+           :extract-session-cookie
+           :json-post
+           :safe-get
+           :safe-delete))
 
 (in-package :twitter-like-test)
 
@@ -71,3 +80,55 @@
   "テスト用ベースURLを取得（環境変数から動的に生成）"
   (format nil "http://localhost:~A"
           (twitter-like.config:get-config "app-port")))
+
+;;; ============================================================
+;;; 共通HTTPテストヘルパー
+;;; ============================================================
+
+(defun extract-session-cookie (set-cookie-header)
+  "Set-Cookieヘッダーから送信用Cookie文字列を抽出
+  Set-Cookie: session_id=xxx; HttpOnly; ... → session_id=xxx"
+  (when set-cookie-header
+    (let* ((cookie-str (if (listp set-cookie-header)
+                           (first set-cookie-header)
+                           set-cookie-header))
+           (semicolon-pos (position #\; cookie-str)))
+      (if semicolon-pos
+          (subseq cookie-str 0 semicolon-pos)
+          cookie-str))))
+
+(defun json-post (path payload &key headers)
+  "JSON POSTリクエスト（エラー時も値を返す）
+  戻り値: (values body status headers)"
+  (handler-case
+      (dex:post (format nil "~A~A" (get-test-base-url) path)
+                :headers (append '(("Content-Type" . "application/json")
+                                   ("Connection" . "close"))
+                                 headers)
+                :content (com.inuoe.jzon:stringify payload))
+    (dexador.error:http-request-failed (e)
+      (values (dexador:response-body e)
+              (dexador:response-status e)
+              (dexador:response-headers e)))))
+
+(defun safe-get (path &key headers)
+  "GETリクエスト（エラー時も値を返す）
+  戻り値: (values body status headers)"
+  (handler-case
+      (dex:get (format nil "~A~A" (get-test-base-url) path)
+               :headers (append '(("Connection" . "close")) headers))
+    (dexador.error:http-request-failed (e)
+      (values (dexador:response-body e)
+              (dexador:response-status e)
+              (dexador:response-headers e)))))
+
+(defun safe-delete (path &key headers)
+  "DELETEリクエスト（エラー時も値を返す）
+  戻り値: (values body status headers)"
+  (handler-case
+      (dex:delete (format nil "~A~A" (get-test-base-url) path)
+                  :headers (append '(("Connection" . "close")) headers))
+    (dexador.error:http-request-failed (e)
+      (values (dexador:response-body e)
+              (dexador:response-status e)
+              (dexador:response-headers e)))))

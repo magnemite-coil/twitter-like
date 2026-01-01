@@ -1,7 +1,10 @@
 (defpackage twitter-like-test.auth
   (:use :cl :rove)
-  (:import-from :dexador)
-  (:import-from :dexador.error)
+  (:import-from :twitter-like-test
+                :get-test-base-url
+                :extract-session-cookie
+                :json-post
+                :safe-get)
   (:import-from :com.inuoe.jzon
                 :parse
                 :stringify))
@@ -10,36 +13,6 @@
 
 (defun make-url (path)
   (format nil "~A~A" (twitter-like-test:get-test-base-url) path))
-
-(defun json-post (path payload &key headers)
-  "シンプルなJSON POSTヘルパー"
-  (handler-case
-      (dex:post (make-url path)
-                :headers (append '(("Content-Type" . "application/json")
-                                   ("Connection" . "close"))
-                                 headers)
-                :content (com.inuoe.jzon:stringify payload))
-    (dexador.error:http-request-failed (e)
-      (values (dexador:response-body e)
-              (dexador:response-status e)
-              (dexador:response-headers e)))))
-
-(defun safe-get (path &key headers)
-  (handler-case
-      (dex:get (make-url path)
-               :headers (append '(("Connection" . "close")) headers))
-    (dexador.error:http-request-failed (e)
-      (values (dexador:response-body e)
-              (dexador:response-status e)
-              (dexador:response-headers e)))))
-
-(defun extract-session-cookie (set-cookie-header)
-  "Set-Cookieヘッダーから送信用Cookie文字列を抽出（最初のname=valueのみ）"
-  (when set-cookie-header
-    (let ((semicolon-pos (position #\; set-cookie-header)))
-      (if semicolon-pos
-          (subseq set-cookie-header 0 semicolon-pos)
-          set-cookie-header))))
 
 (setup
   ;; テスト環境セットアップ
