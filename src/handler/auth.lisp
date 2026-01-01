@@ -184,12 +184,24 @@
               (let ((response-data (make-hash-table :test 'equal)))
                 (setf (gethash "user" response-data) (user-to-public-json user))
                 (response-with-cookie 201 response-data cookie)))
-            ;; 失敗
-            (let ((error-id (log-error "Registration failed"
-                                        :context (list :|username| username
-                                                       :|error| error-message))))
+            ;; 失敗 - エラー種別に応じてログレベルを分類
+            (progn
               (twitter-like.service.auth::increment-rate-limit :register client-ip :window 3600)
-              (response-error 400 error-message :error-id error-id)))))))
+              (cond
+                ;; クライアント起因（バリデーションエラー）: log-warn、error_idなし
+                ((or (search "Username" error-message)
+                     (search "Password" error-message)
+                     (search "already exists" error-message))
+                 (log-warn "Registration validation failed"
+                           :context (list :|username| username
+                                          :|error| error-message))
+                 (response-error 400 error-message))
+                ;; サーバー起因エラー: log-error、error_idあり
+                (t
+                 (let ((error-id (log-error "Registration failed"
+                                             :context (list :|username| username
+                                                            :|error| error-message))))
+                   (response-error 400 error-message :error-id error-id))))))))))
 
 ;;; ============================================================
 ;;; POST /api/auth/login
@@ -264,9 +276,10 @@
                 (when locked
                   (log-warn "Account locked after failed attempts"
                             :context (list :|username| username :|attempts| count))))
-              (let ((error-id (log-warn "Login failed"
-                                        :context (list :|username| username))))
-                (response-error 401 error-message :error-id error-id))))))))
+              ;; クライアント起因エラー: log-warn、error_idなし
+              (log-warn "Login failed"
+                        :context (list :|username| username))
+              (response-error 401 error-message)))))))
 
 ;;; ============================================================
 ;;; POST /api/auth/logout

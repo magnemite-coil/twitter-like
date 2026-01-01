@@ -192,6 +192,30 @@
 ;;; DELETE /api/tweets/:id テスト
 ;;; ============================================================
 
+(deftest test-delete-tweet-requires-csrf
+  (testing "DELETE /api/tweets/:id without CSRF token returns 403"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore username))
+      ;; ツイートを作成
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:json-post "/api/tweets"
+                     (let ((h (make-hash-table :test 'equal)))
+                       (setf (gethash "content" h) "Tweet to test CSRF")
+                       h)
+                     :headers `(("cookie" . ,cookie)
+                                ("x-csrf-token" . ,csrf)))
+        (declare (ignore headers))
+        (ok (= status 201))
+        (let* ((response (com.inuoe.jzon:parse body))
+               (tweet-id (gethash "id" (gethash "tweet" response))))
+          ;; CSRFトークンなしで削除を試みる
+          (multiple-value-bind (del-body del-status del-headers)
+              (twitter-like-test:safe-delete
+                (format nil "/api/tweets/~A" tweet-id)
+                :headers `(("cookie" . ,cookie)))  ; CSRFトークンなし
+            (declare (ignore del-body del-headers))
+            (ok (= del-status 403) "Should return 403 Forbidden")))))))
+
 (deftest test-delete-tweet-requires-ownership
   (testing "DELETE /api/tweets/:id by non-owner returns 403"
     ;; ユーザー1がツイート作成
