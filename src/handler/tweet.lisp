@@ -19,6 +19,7 @@
                 :get-session-user-id
                 :get-csrf-token
                 :session-idle-expired-p
+                :session-absolute-expired-p
                 :touch-session
                 :delete-session)
   (:import-from :twitter-like.model.tweet
@@ -123,13 +124,19 @@
         (values nil 415 "Unsupported Media Type"))))
 
 (defun require-auth ()
-  "認証を要求し、user-idを返す。未認証の場合はnilを返す"
+  "認証を要求し、user-idを返す。未認証の場合はnilを返す
+  セキュリティ基準: アイドルタイムアウト + 絶対タイムアウトの両方をチェック"
   (let ((session-id (get-session-id-from-cookie)))
     (unless session-id
       (return-from require-auth (values nil nil "Unauthorized")))
     (let ((user-id (get-session-user-id session-id)))
       (unless user-id
         (return-from require-auth (values nil nil "Unauthorized")))
+      ;; 絶対タイムアウトチェック（セッション作成からの経過時間）
+      (when (session-absolute-expired-p session-id)
+        (delete-session session-id)
+        (return-from require-auth (values nil nil "Session expired")))
+      ;; アイドルタイムアウトチェック（最終アクセスからの経過時間）
       (when (session-idle-expired-p session-id)
         (delete-session session-id)
         (return-from require-auth (values nil nil "Session expired")))

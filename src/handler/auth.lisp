@@ -24,6 +24,7 @@
                 :delete-session
                 :touch-session
                 :session-idle-expired-p
+                :session-absolute-expired-p
                 :rotate-session
                 :build-session-cookie
                 :build-session-clear-cookie)
@@ -300,7 +301,11 @@
         (return-from logout-handler
           (response-error 401 "Unauthorized")))
 
-      ;; セッションのタイムアウトチェック
+      ;; セッションのタイムアウトチェック（絶対 + アイドル）
+      (when (session-absolute-expired-p session-id)
+        (delete-session session-id)
+        (return-from logout-handler
+          (response-error 401 "Session expired")))
       (when (session-idle-expired-p session-id)
         (delete-session session-id)
         (return-from logout-handler
@@ -356,7 +361,11 @@
         (return-from me-handler
           (response-error 401 "Unauthorized")))
 
-      ;; セッションのタイムアウトチェック
+      ;; セッションのタイムアウトチェック（絶対 + アイドル）
+      (when (session-absolute-expired-p session-id)
+        (delete-session session-id)
+        (return-from me-handler
+          (response-error 401 "Session expired")))
       (when (session-idle-expired-p session-id)
         (delete-session session-id)
         (return-from me-handler
