@@ -15,6 +15,12 @@
   (:import-from :twitter-like.util.crypto
                 :constant-time-string=
                 :mask-session-id)
+  (:import-from :twitter-like.util.request
+                :parse-json-body
+                :get-session-id-from-cookie
+                :get-csrf-header
+                :validate-content-type
+                :get-query-param)
   (:import-from :twitter-like.middleware.session
                 :get-session-user-id
                 :get-csrf-token
@@ -44,84 +50,8 @@
 (in-package :twitter-like.handler.tweet)
 
 ;;; ============================================================
-;;; ユーティリティ関数
+;;; ハンドラー固有のユーティリティ関数
 ;;; ============================================================
-
-(defun get-env ()
-  "ningleのコンテキストからリクエスト環境を取得"
-  (lack.request:request-env (ningle:context :request)))
-
-(defun parse-json-body ()
-  "リクエストボディをJSONとしてパース"
-  (handler-case
-      (let ((env (get-env)))
-        (let* ((content-length-raw (getf env :content-length))
-               (content-length (if (stringp content-length-raw)
-                                   (parse-integer content-length-raw :junk-allowed t)
-                                   content-length-raw))
-               (body-stream (getf env :raw-body)))
-          (when (and content-length body-stream (> content-length 0))
-            (let ((body-bytes (make-array content-length :element-type '(unsigned-byte 8))))
-              (read-sequence body-bytes body-stream)
-              (let ((body-string (babel:octets-to-string body-bytes :encoding :utf-8)))
-                (com.inuoe.jzon:parse body-string))))))
-    (error (e)
-      (log-warn "Failed to parse JSON body"
-                :context (list :|error| (princ-to-string e)))
-      nil)))
-
-(defun parse-cookie-string (cookie-string)
-  "Cookie文字列をパースしてセッションIDを抽出"
-  (when (and cookie-string (stringp cookie-string) (> (length cookie-string) 0))
-    (loop for pair in (str:split "; " cookie-string)
-          for eq-pos = (position #\= pair)
-          when eq-pos
-          do (let ((name (subseq pair 0 eq-pos))
-                   (value (subseq pair (1+ eq-pos))))
-               (when (string= name "session_id")
-                 (return value))))))
-
-(defun get-session-id-from-cookie ()
-  "CookieからセッションIDを取得"
-  (let* ((env (get-env))
-         (headers (getf env :headers))
-         (raw-cookie (when (hash-table-p headers)
-                       (gethash "cookie" headers)))
-         (cookie-string (cond
-                          ((stringp raw-cookie) raw-cookie)
-                          ((and (listp raw-cookie) (stringp (first raw-cookie)))
-                           (first raw-cookie))
-                          (t raw-cookie))))
-    (or (parse-cookie-string cookie-string)
-        (let* ((request (ningle:context :request))
-               (cookies (when request
-                          (handler-case
-                              (lack.request:request-cookies request)
-                            (error () nil)))))
-          (when (consp cookies)
-            (cdr (assoc "session_id" cookies :test #'string=)))))))
-
-(defun get-csrf-header ()
-  "リクエストヘッダーからCSRFトークンを取得"
-  (let* ((env (get-env))
-         (headers (getf env :headers)))
-    (when (hash-table-p headers)
-      (gethash "x-csrf-token" headers))))
-
-(defun get-content-type ()
-  "リクエストヘッダーからContent-Typeを取得
-  Clack/Lack では :content-type は env に直接設定される"
-  (let ((env (get-env)))
-    (getf env :content-type)))
-
-(defun validate-content-type ()
-  "Content-Typeがapplication/jsonであることを検証（OWASP準拠）
-  戻り値: (values valid-p error-status error-message)"
-  (let ((content-type (get-content-type)))
-    (if (and content-type
-             (search "application/json" content-type))
-        (values t nil nil)
-        (values nil 415 "Unsupported Media Type"))))
 
 (defun require-auth ()
   "認証を要求し、user-idを返す。未認証の場合はnilを返す
@@ -149,27 +79,6 @@
          (stored-token (get-csrf-token session-id)))
     (and submitted-token stored-token
          (constant-time-string= submitted-token stored-token))))
-
-(defun get-query-param (name &key (default nil) (type :string))
-  "クエリパラメータを取得"
-  (let* ((env (get-env))
-         (query-string (getf env :query-string))
-         (value (when query-string
-                  (loop for pair in (str:split "&" query-string)
-                        for eq-pos = (position #\= pair)
-                        when (and eq-pos (string= (subseq pair 0 eq-pos) name))
-                        return (subseq pair (1+ eq-pos))))))
-    (if value
-        (case type
-          (:integer
-           ;; 仕様: "10abc"のような部分的数字も「非整数」としてデフォルト値を返す
-           ;; :junk-allowed nil で厳密にパースし、失敗時はデフォルト値
-           (handler-case
-               (let ((parsed (parse-integer value :junk-allowed nil)))
-                 (if parsed parsed default))
-             (error () default)))
-          (t value))
-        default)))
 
 ;;; ============================================================
 ;;; POST /api/tweets - ツイート投稿
@@ -206,13 +115,16 @@
         (log-warn "Tweet rate limit exceeded"
                   :context (list :|user_id| user-id))
         ;; handler層でレスポンス生成
+        ;; reset-time が nil の場合は現在時刻 + ウィンドウ幅をフォールバックとして使用
         (let* ((base-response (response-error 429 "Too many tweets. Please try again later."))
                (base-headers (second base-response))
-               (retry-after (max 0 (- reset-time (get-unix-time))))
+               (now (get-unix-time))
+               (effective-reset-time (or reset-time (+ now +tweet-rate-window+)))
+               (retry-after (max 0 (- effective-reset-time now)))
                (extra-headers (list :retry-after (write-to-string retry-after)
                                     :x-ratelimit-limit (write-to-string +tweet-rate-limit+)
                                     :x-ratelimit-remaining "0"
-                                    :x-ratelimit-reset (write-to-string reset-time)))
+                                    :x-ratelimit-reset (write-to-string effective-reset-time)))
                (merged-headers (append base-headers extra-headers)))
           (return-from create-tweet-handler
             (list 429 merged-headers (third base-response))))))

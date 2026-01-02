@@ -96,12 +96,22 @@ end")
                            (write-to-string +tweet-rate-window+)
                            member)))
     ;; result は (allowed remaining reset_time) のリスト
-    (let ((allowed (first result))
-          (remaining (second result))
-          (reset-time (third result)))
-      (values (= allowed 1)
-              remaining
-              (when (> reset-time 0) reset-time)))))
+    ;; Redis Lua からの戻り値は文字列の場合があるため、数値に正規化
+    (flet ((ensure-integer (val &optional (default 0))
+             "値を整数に変換。文字列・数値に対応、nilやパース失敗時はdefaultを返す"
+             (cond
+               ((null val) default)
+               ((integerp val) val)
+               ((stringp val)
+                (handler-case (parse-integer val :junk-allowed nil)
+                  (error () default)))
+               (t default))))
+      (let ((allowed (ensure-integer (first result) 0))
+            (remaining (ensure-integer (second result) 0))
+            (reset-time (ensure-integer (third result) 0)))
+        (values (= allowed 1)
+                remaining
+                (when (> reset-time 0) reset-time))))))
 
 ;;; ============================================================
 ;;; 文字数カウント（Twitter互換 - 絵文字2カウント）

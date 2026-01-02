@@ -32,7 +32,8 @@
                   ((:file "logger")
                    (:file "response")
                    (:file "crypto")
-                   (:file "time")))                          ; 認証用暗号ユーティリティ
+                   (:file "time")
+                   (:file "request" :depends-on ("logger"))))                          ; 認証用暗号ユーティリティ
                  (:file "db" :depends-on ("config"))          ; configに依存
                  (:module "middleware"
                   :depends-on ("config" "util")

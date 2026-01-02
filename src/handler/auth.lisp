@@ -17,6 +17,12 @@
   (:import-from :twitter-like.util.crypto
                 :constant-time-string=
                 :mask-session-id)
+  (:import-from :twitter-like.util.request
+                :get-env
+                :parse-json-body
+                :get-session-id-from-cookie
+                :get-csrf-header
+                :get-client-ip)
   (:import-from :twitter-like.middleware.session
                 :create-session
                 :get-session-user-id
@@ -48,83 +54,8 @@
 (in-package :twitter-like.handler.auth)
 
 ;;; ============================================================
-;;; ユーティリティ関数
+;;; ハンドラー固有のユーティリティ関数
 ;;; ============================================================
-
-(defun get-env ()
-  "ningleのコンテキストからリクエスト環境を取得"
-  (lack.request:request-env (ningle:context :request)))
-
-(defun parse-json-body ()
-  "リクエストボディをJSONとしてパース"
-  (handler-case
-      (let ((env (get-env)))
-        (let* ((content-length-raw (getf env :content-length))
-               (content-length (if (stringp content-length-raw)
-                                   (parse-integer content-length-raw :junk-allowed t)
-                                   content-length-raw))
-               (body-stream (getf env :raw-body)))
-          (when (and content-length body-stream (> content-length 0))
-            (let ((body-bytes (make-array content-length :element-type '(unsigned-byte 8))))
-              (read-sequence body-bytes body-stream)
-              (let ((body-string (babel:octets-to-string body-bytes :encoding :utf-8)))
-                (com.inuoe.jzon:parse body-string))))))
-    (error (e)
-      (log-warn (format nil "Failed to parse JSON body: ~A" e))
-      nil)))
-
-(defun get-client-ip ()
-  "クライアントIPアドレスを取得（X-Forwarded-For対応）"
-  (let ((env (get-env)))
-    (or (getf env :http-x-forwarded-for)
-        (getf env :remote-addr)
-        "unknown")))
-
-(defun parse-cookie-string (cookie-string)
-  "Cookie文字列をパースしてセッションIDを抽出"
-  (when (and cookie-string (stringp cookie-string) (> (length cookie-string) 0))
-    (loop for pair in (str:split "; " cookie-string)
-          for eq-pos = (position #\= pair)
-          when eq-pos
-          do (let ((name (subseq pair 0 eq-pos))
-                   (value (subseq pair (1+ eq-pos))))
-               (when (string= name "session_id")
-                 (return value))))))
-
-(defun get-session-id-from-cookie ()
-  "CookieからセッションIDを取得
-
-   Clack/Lack標準に従い、以下の順序でCookieを探索:
-   1. :headers ハッシュテーブルの 'cookie' キー（Clack標準）
-   2. lack.request:request-cookies（Lackミドルウェア経由）"
-  (let* ((env (get-env))
-         (headers (getf env :headers))
-         ;; Clack標準: headersハッシュテーブルから小文字キーで取得
-         (raw-cookie (when (hash-table-p headers)
-                       (gethash "cookie" headers)))
-         (cookie-string (cond
-                          ((stringp raw-cookie) raw-cookie)
-                          ((and (listp raw-cookie) (stringp (first raw-cookie)))
-                           (first raw-cookie))
-                          (t raw-cookie))))
-    ;; headersから取得できた場合はパース
-    (or (parse-cookie-string cookie-string)
-        ;; フォールバック: lack.request:request-cookies を使用
-        (let* ((request (ningle:context :request))
-               (cookies (when request
-                          (handler-case
-                              (lack.request:request-cookies request)
-                            (error () nil)))))
-          (when (consp cookies)
-            (cdr (assoc "session_id" cookies :test #'string=)))))))
-
-(defun get-csrf-header ()
-  "リクエストヘッダーからCSRFトークンを取得
-   Clack標準に従い、:headersハッシュテーブルから小文字キーで取得"
-  (let* ((env (get-env))
-         (headers (getf env :headers)))
-    (when (hash-table-p headers)
-      (gethash "x-csrf-token" headers))))
 
 (defun response-with-cookie (status data cookie-value &key extra-headers)
   "Cookieを含むレスポンスを生成"
