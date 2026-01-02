@@ -30,13 +30,12 @@
                 :delete-session)
   (:import-from :twitter-like.model.tweet
                 :tweet-to-json)
-  (:import-from :twitter-like.model.user
-                :find-user-by-username)
   (:import-from :twitter-like.service.tweet
                 :create-tweet
                 :delete-tweet
                 :get-tweet-by-id
                 :get-tweets-by-user
+                :get-user-by-username
                 :check-and-increment-rate-limit
                 :+tweet-rate-limit+
                 :+tweet-rate-window+
@@ -261,8 +260,8 @@
       (return-from get-user-tweets-handler
         (response-error 400 "Username is required")))
 
-    ;; ユーザー存在確認
-    (let ((user (find-user-by-username username)))
+    ;; ユーザー存在確認（service経由で呼び出し）
+    (let ((user (get-user-by-username username)))
       (unless user
         (return-from get-user-tweets-handler
           (response-error 404 "User not found")))

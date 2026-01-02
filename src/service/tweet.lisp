@@ -10,6 +10,8 @@
                 :create-tweet-record
                 :delete-tweet-record
                 :tweet-user-id)
+  (:import-from :twitter-like.model.user
+                :find-user-by-username)
   (:import-from :twitter-like.util.logger
                 :log-error)
   (:import-from :twitter-like.util.time
@@ -23,6 +25,7 @@
            :delete-tweet
            :get-tweet-by-id
            :get-tweets-by-user
+           :get-user-by-username
            :check-and-increment-rate-limit
            :+tweet-rate-limit+
            :+tweet-rate-window+
@@ -200,3 +203,8 @@ end")
 (defun get-tweets-by-user (user-id &key (limit 20) (offset 0))
   "ユーザーのツイート一覧を取得"
   (find-tweets-by-user-id user-id :limit limit :offset offset))
+
+(defun get-user-by-username (username)
+  "ユーザー名でユーザーを取得
+  handler → service → model のレイヤー構造を維持するためのラッパー関数"
+  (find-user-by-username username))

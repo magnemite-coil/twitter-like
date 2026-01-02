@@ -8,7 +8,10 @@
                 :safe-delete)
   (:import-from :com.inuoe.jzon
                 :parse
-                :stringify))
+                :stringify)
+  (:import-from :ironclad
+                :byte-array-to-hex-string
+                :random-data))
 
 (in-package :twitter-like-test.tweet)
 
@@ -27,10 +30,13 @@
     (error () nil)))
 
 (defun register-and-get-session ()
-  "テスト用ユーザーを登録してセッション情報を取得"
+  "テスト用ユーザーを登録してセッション情報を取得
+  注意: 乱数を付与してユーザー名の一意性を確保（同秒衝突対策）"
   ;; 登録前にレート制限をクリア
   (clear-rate-limits)
-  (let* ((username (format nil "tweettest_~A" (get-universal-time)))
+  (let* ((random-suffix (ironclad:byte-array-to-hex-string
+                          (ironclad:random-data 3)))
+         (username (format nil "tw~A~A" (mod (get-universal-time) 100000) random-suffix))
          (password "this-is-a-very-secure-password"))
     (multiple-value-bind (body status headers)
         (twitter-like-test:json-post "/api/auth/register"
@@ -38,7 +44,10 @@
                      (setf (gethash "username" h) username
                            (gethash "password" h) password)
                      h))
-      (declare (ignore body status))
+      (declare (ignore body))
+      ;; 登録失敗時は即エラー（テストの前提条件が満たされない）
+      (unless (= status 201)
+        (error "Failed to register test user: ~A (status ~A)" username status))
       ;; セッションCookieとCSRFトークンを取得
       (let* ((set-cookie (gethash "set-cookie" headers))
              (cookie (twitter-like-test:extract-session-cookie set-cookie)))
