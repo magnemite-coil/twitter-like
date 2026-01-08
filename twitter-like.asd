@@ -33,6 +33,8 @@
                    (:file "response")
                    (:file "crypto")
                    (:file "time")
+                   (:file "json")
+                   (:file "rate-limit" :depends-on ("time"))
                    (:file "request" :depends-on ("logger"))))                          ; 認証用暗号ユーティリティ
                  (:file "db" :depends-on ("config"))          ; configに依存
                  (:module "middleware"

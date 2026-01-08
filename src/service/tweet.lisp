@@ -15,7 +15,13 @@
   (:import-from :twitter-like.util.logger
                 :log-error)
   (:import-from :twitter-like.util.time
-                :get-unix-time)
+                :get-unix-time
+                :format-timestamp)
+  (:import-from :twitter-like.util.json
+                :value-or-json-null)
+  (:import-from :twitter-like.util.rate-limit
+                :check-and-increment
+                :ensure-integer)
   (:import-from :ironclad
                 :byte-array-to-hex-string
                 :random-data)
@@ -29,7 +35,10 @@
            :check-and-increment-rate-limit
            :+tweet-rate-limit+
            :+tweet-rate-window+
-           :get-unix-time))
+           :get-unix-time
+           ;; Phase 2
+           :find-tweets-with-user-by-user-id
+           :get-tweets-by-user-with-user-info))
 
 (in-package :twitter-like.service.tweet)
 
@@ -43,78 +52,17 @@
 (defconstant +tweet-rate-window+ 3600
   "ツイートレート制限ウィンドウ: 1時間（秒）")
 
-;;; Redis Luaスクリプト（原子的レート制限）
-;;; ZREMRANGEBYSCORE → ZCARD → 条件付きZADD → EXPIRE を一括実行
-(defparameter +rate-limit-lua-script+
-  "local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local window_start = tonumber(ARGV[2])
-local limit = tonumber(ARGV[3])
-local window = tonumber(ARGV[4])
-local member = ARGV[5]
-
--- 古いエントリを削除
-redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
-
--- 現在のカウントを取得
-local count = redis.call('ZCARD', key)
-
-if count >= limit then
-  -- 制限超過: 最古のエントリのスコアを取得してreset_timeを計算
-  local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
-  local reset_time = 0
-  if oldest and #oldest >= 2 then
-    reset_time = tonumber(oldest[2]) + window
-  end
-  return {0, 0, reset_time}  -- {allowed=0, remaining=0, reset_time}
-else
-  -- 許可: カウントを増加
-  redis.call('ZADD', key, now, member)
-  redis.call('EXPIRE', key, window + 60)
-  return {1, limit - count - 1, 0}  -- {allowed=1, remaining, reset_time=0}
-end")
-
 (defun check-and-increment-rate-limit (user-id)
-  "ツイート投稿のレート制限をチェックし、許可された場合はカウントを増加（原子的）
-
-  注意: Redis Luaスクリプトにより、チェックとインクリメントを原子的に実行。
-  レースコンディションを防止し、同時投稿での上限超過を防ぐ。
+  "ツイート投稿のレート制限（後方互換ラッパー）
+  Phase 2: util/rate-limit.lisp の汎用関数を使用
 
   戻り値: (values allowed-p remaining-count reset-time)"
-  (let* ((key (format nil "rate:tweet:user:~A" user-id))
-         (now (get-unix-time))
-         (window-start (- now +tweet-rate-window+))
-         ;; member は Sorted Set 内で一意である必要がある
-         ;; CSPRNG を使用して衝突を防止（8バイト = 16進数16文字）
-         (member (format nil "~A:~A" now
-                         (byte-array-to-hex-string
-                           (random-data 8))))
-         ;; Luaスクリプトを実行（EVAL）
-         (result (red:eval +rate-limit-lua-script+
-                           1  ; KEYSの数
-                           key
-                           (write-to-string now)
-                           (write-to-string window-start)
-                           (write-to-string +tweet-rate-limit+)
-                           (write-to-string +tweet-rate-window+)
-                           member)))
-    ;; result は (allowed remaining reset_time) のリスト
-    ;; Redis Lua からの戻り値は文字列の場合があるため、数値に正規化
-    (flet ((ensure-integer (val &optional (default 0))
-             "値を整数に変換。文字列・数値に対応、nilやパース失敗時はdefaultを返す"
-             (cond
-               ((null val) default)
-               ((integerp val) val)
-               ((stringp val)
-                (handler-case (parse-integer val :junk-allowed nil)
-                  (error () default)))
-               (t default))))
-      (let ((allowed (ensure-integer (first result) 0))
-            (remaining (ensure-integer (second result) 0))
-            (reset-time (ensure-integer (third result) 0)))
-        (values (= allowed 1)
-                remaining
-                (when (> reset-time 0) reset-time))))))
+  (multiple-value-bind (allowed-p remaining reset-time member-id)
+      (check-and-increment "tweet" :user user-id
+                           +tweet-rate-limit+ +tweet-rate-window+
+                           :increment-on :check)
+    (declare (ignore member-id))
+    (values allowed-p remaining reset-time)))
 
 ;;; ============================================================
 ;;; 文字数カウント（Twitter互換 - 絵文字2カウント）
@@ -208,3 +156,79 @@ end")
   "ユーザー名でユーザーを取得
   handler → service → model のレイヤー構造を維持するためのラッパー関数"
   (find-user-by-username username))
+
+;;; ============================================================
+;;; Phase 2: N+1クエリ解消（JOINによる一括取得）
+;;; ============================================================
+
+(defun row-to-tweet-json (row)
+  "JOIN結果の行をJSON形式のハッシュテーブルに変換"
+  (let ((tweet-json (make-hash-table :test 'equal))
+        (user-json (make-hash-table :test 'equal)))
+    ;; Tweet部分
+    (setf (gethash "id" tweet-json) (getf row :|id|))
+    (setf (gethash "user_id" tweet-json) (getf row :|user_id|))
+    (setf (gethash "content" tweet-json) (getf row :|content|))
+    (setf (gethash "created_at" tweet-json) (format-timestamp (getf row :|created_at|)))
+    ;; User部分
+    (setf (gethash "id" user-json) (getf row :|user_id_from_join|))
+    (setf (gethash "username" user-json) (getf row :|username|))
+    (setf (gethash "display_name" user-json) (value-or-json-null (getf row :|display_name|)))
+    (setf (gethash "bio" user-json) (value-or-json-null (getf row :|bio|)))
+    (setf (gethash "created_at" user-json) (format-timestamp (getf row :|user_created_at|)))
+    (setf (gethash "user" tweet-json) user-json)
+    tweet-json))
+
+(defun find-tweets-with-user-by-user-id (user-id &key max-id since-id (count 20) (offset 0) (mode :cursor))
+  "ツイートとユーザー情報を一括取得（N+1クエリ回避、cursor/offset両対応）"
+  (let ((conditions (list (list := :t.user_id user-id))))
+    (when (eq mode :cursor)
+      (when max-id
+        (push (list :<= :t.id max-id) conditions))
+      (when since-id
+        (push (list :> :t.id since-id) conditions)))
+    (let ((where-clause (cons :and (nreverse conditions))))
+      (mito:retrieve-by-sql
+        (if (eq mode :offset)
+            (sxql:select (:t.id :t.user_id :t.content :t.created_at
+                          (:as :u.id :user_id_from_join)
+                          :u.username :u.display_name :u.bio
+                          (:as :u.created_at :user_created_at))
+              (sxql:from (:as :tweet :t))
+              (sxql:inner-join (:as :user :u) :on (:= :t.user_id :u.id))
+              (sxql:where where-clause)
+              (sxql:order-by (:desc :t.id))
+              (sxql:limit (1+ count))
+              (sxql:offset offset))
+            (sxql:select (:t.id :t.user_id :t.content :t.created_at
+                          (:as :u.id :user_id_from_join)
+                          :u.username :u.display_name :u.bio
+                          (:as :u.created_at :user_created_at))
+              (sxql:from (:as :tweet :t))
+              (sxql:inner-join (:as :user :u) :on (:= :t.user_id :u.id))
+              (sxql:where where-clause)
+              (sxql:order-by (:desc :t.id))
+              (sxql:limit (1+ count))))))))
+
+(defun get-tweets-by-user-with-user-info (user-id &key max-id since-id (count 20) (offset 0) (mode :cursor))
+  "ユーザーのツイート一覧を取得（ユーザー情報付き、N+1解消、cursor/offset両対応）
+   戻り値: (values tweets-json has-more next-max-id next-since-id)"
+  (let* ((rows (find-tweets-with-user-by-user-id user-id
+                                                  :max-id max-id
+                                                  :since-id since-id
+                                                  :count count
+                                                  :offset offset
+                                                  :mode mode))
+         (has-more (> (length rows) count))
+         (trimmed-rows (if has-more
+                           (butlast rows)
+                           rows))
+         (last-row (first (last trimmed-rows)))
+         (next-max-id (when (and trimmed-rows (eq mode :cursor))
+                        (1- (getf last-row :|id|))))
+         (next-since-id (when (and trimmed-rows (eq mode :cursor))
+                          (getf (first trimmed-rows) :|id|))))
+    (values (mapcar #'row-to-tweet-json trimmed-rows)
+            has-more
+            next-max-id
+            next-since-id)))

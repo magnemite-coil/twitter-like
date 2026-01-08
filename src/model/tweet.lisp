@@ -34,11 +34,11 @@
 
 (defun find-tweets-by-user-id (user-id &key (limit 20) (offset 0))
   "ユーザーIDでツイートを検索（新しい順）
-  注意: created_at DESC, id DESC で並べ替え。
-  同時刻のレコードの順序を決定的にするため、id も降順で指定。"
+  Phase 2: ORDER BY を id DESC のみに統一（カーソルベースページネーション対応）
+  id は SERIAL 型で単調増加するため、時系列順と一致する。"
   (mito:select-dao 'tweet
     (sxql:where (:= :user_id user-id))
-    (sxql:order-by (:desc :created_at) (:desc :id))
+    (sxql:order-by (:desc :id))
     (sxql:limit limit)
     (sxql:offset offset)))
 

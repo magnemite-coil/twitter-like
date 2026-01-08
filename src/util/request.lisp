@@ -6,6 +6,7 @@
   (:import-from :com.inuoe.jzon
                 :parse)
   (:import-from :twitter-like.util.logger
+                :log-info
                 :log-warn)
   (:export :get-env
            :parse-json-body
@@ -15,7 +16,13 @@
            :get-client-ip
            :get-content-type
            :validate-content-type
-           :get-query-param))
+           :get-query-param
+           ;; Phase 2: cursor pagination
+           :clamp-pagination-count
+           :clamp-count
+           :parse-cursor-param
+           :get-query-param-cursor
+           :+max-bigint+))
 
 (in-package :twitter-like.util.request)
 
@@ -125,3 +132,77 @@
              (error () default)))
           (t value))
         default)))
+
+;;; ============================================================
+;;; Phase 2: カーソルベースページネーション
+;;; ============================================================
+
+(defconstant +max-bigint+ 9223372036854775807
+  "PostgreSQL bigint の上限値")
+
+(defun clamp-pagination-count (value &key (min 1) (max 100) (default 20))
+  "ページネーションのcount/limitを有効範囲に制限"
+  (cond
+    ((null value) default)
+    ((not (integerp value)) default)
+    ((< value min) default)
+    ((> value max) default)
+    (t value)))
+
+(defun clamp-count (value)
+  "countを有効範囲に制限（clamp-pagination-countのエイリアス）
+   DEPRECATED: clamp-pagination-count を直接使用すること"
+  (clamp-pagination-count value))
+
+(defun parse-cursor-param (name)
+  "カーソルパラメータをパースし、(values value valid-p) を返す"
+  (let ((raw (get-query-param name :type :string)))
+    (cond
+      ((null raw) (values nil t))
+      ((zerop (length raw)) (values nil nil))
+      ((every #'digit-char-p raw)
+       (let ((value (parse-integer raw)))
+         (if (<= value +max-bigint+)
+             (values value t)
+             (values nil nil))))
+      (t (values nil nil)))))
+
+(defun get-query-param-cursor ()
+  "カーソルベースのページネーションパラメータを取得
+   戻り値: (values max-id since-id count offset mode error-message)"
+  (multiple-value-bind (max-id max-id-valid) (parse-cursor-param "max_id")
+    (multiple-value-bind (since-id since-id-valid) (parse-cursor-param "since_id")
+      (unless max-id-valid
+        (return-from get-query-param-cursor
+          (values nil nil nil nil :error "Invalid max_id: must be an integer")))
+      (unless since-id-valid
+        (return-from get-query-param-cursor
+          (values nil nil nil nil :error "Invalid since_id: must be an integer")))
+
+      (multiple-value-bind (raw-count count-valid) (parse-cursor-param "count")
+        (unless count-valid
+          (return-from get-query-param-cursor
+            (values nil nil nil nil :error "Invalid count: must be an integer")))
+
+        (multiple-value-bind (limit limit-valid) (parse-cursor-param "limit")
+          (unless limit-valid
+            (return-from get-query-param-cursor
+              (values nil nil nil nil :error "Invalid limit: must be an integer")))
+
+          (multiple-value-bind (offset offset-valid) (parse-cursor-param "offset")
+            (unless offset-valid
+              (return-from get-query-param-cursor
+                (values nil nil nil nil :error "Invalid offset: must be an integer")))
+
+            (let ((mode (cond
+                          ((or max-id since-id) :cursor)
+                          ((and raw-count (not limit) (not offset)) :cursor)
+                          (t :offset))))
+              (when (and raw-count (or limit offset) (not max-id) (not since-id))
+                (log-info "Mixed parameters: count with limit/offset"
+                          :context (list :|count| raw-count :|limit| limit :|offset| offset)))
+              (when (and (eq mode :cursor) (or limit offset))
+                (log-info "Deprecated: limit/offset with cursor params"
+                          :context (list :|limit| limit :|offset| offset)))
+              (let ((count (clamp-pagination-count (or raw-count limit))))
+                (values max-id since-id count offset mode nil)))))))))

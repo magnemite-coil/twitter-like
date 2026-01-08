@@ -20,7 +20,10 @@
                 :get-session-id-from-cookie
                 :get-csrf-header
                 :validate-content-type
-                :get-query-param)
+                :get-query-param
+                ;; Phase 2
+                :get-query-param-cursor
+                :clamp-pagination-count)
   (:import-from :twitter-like.middleware.session
                 :get-session-user-id
                 :get-csrf-token
@@ -39,7 +42,9 @@
                 :check-and-increment-rate-limit
                 :+tweet-rate-limit+
                 :+tweet-rate-window+
-                :get-unix-time)
+                :get-unix-time
+                ;; Phase 2
+                :get-tweets-by-user-with-user-info)
   (:export :create-tweet-handler
            :get-tweet-handler
            :delete-tweet-handler
@@ -250,10 +255,11 @@
 
 ;;; ============================================================
 ;;; GET /api/users/:username/tweets - ユーザーのツイート一覧
+;;; Phase 2: cursor/offset 両対応
 ;;; ============================================================
 
 (defun get-user-tweets-handler (params)
-  "ユーザーのツイート一覧取得ハンドラー"
+  "ユーザーのツイート一覧取得ハンドラー（Phase 2: cursor/offset両対応）"
   (let ((username (cdr (assoc :username params))))
 
     (unless username
@@ -266,30 +272,40 @@
         (return-from get-user-tweets-handler
           (response-error 404 "User not found")))
 
-      ;; ページネーションパラメータ
-      (let* ((raw-limit (get-query-param "limit" :default 20 :type :integer))
-             (limit (if (and raw-limit (>= raw-limit 1) (<= raw-limit 100))
-                        raw-limit
-                        20))
-             (raw-offset (get-query-param "offset" :default 0 :type :integer))
-             (offset (max (or raw-offset 0) 0))
-             (user-id (mito:object-id user))
-             ;; has_more判定: limit+1件を取得し、limit件より多ければ次ページがある
-             (tweets (get-tweets-by-user user-id :limit (1+ limit) :offset offset))
-             (has-more (> (length tweets) limit))
-             ;; 実際に返すのはlimit件まで
-             (tweets-to-return (if has-more (butlast tweets) tweets)))
+      ;; Phase 2: カーソルベースページネーションパラメータ取得
+      (multiple-value-bind (max-id since-id count offset mode error-message)
+          (get-query-param-cursor)
+        ;; パラメータ検証エラー
+        (when (eq mode :error)
+          (return-from get-user-tweets-handler
+            (response-error 400 error-message)))
 
-        (let ((response-data (make-hash-table :test 'equal))
-              (pagination (make-hash-table :test 'equal)))
-          (setf (gethash "tweets" response-data)
-                (mapcar (lambda (tweet) (tweet-to-json tweet :include-user t))
-                        tweets-to-return))
-          (setf (gethash "limit" pagination) limit)
-          (setf (gethash "offset" pagination) offset)
-          (setf (gethash "has_more" pagination) has-more)
-          (setf (gethash "pagination" response-data) pagination)
-          (response-success response-data))))))
+        (let ((user-id (mito:object-id user)))
+          ;; Phase 2: N+1解消版関数を使用
+          (multiple-value-bind (tweets-json has-more next-max-id next-since-id)
+              (get-tweets-by-user-with-user-info user-id
+                                                  :max-id max-id
+                                                  :since-id since-id
+                                                  :count count
+                                                  :offset (or offset 0)
+                                                  :mode mode)
+            (let ((response-data (make-hash-table :test 'equal))
+                  (cursors (make-hash-table :test 'equal))
+                  (pagination (make-hash-table :test 'equal)))
+              (setf (gethash "tweets" response-data) tweets-json)
+              ;; cursors フィールド
+              (setf (gethash "max_id" cursors) (or max-id 'null))
+              (setf (gethash "since_id" cursors) (or since-id 'null))
+              (setf (gethash "next_max_id" cursors) (or next-max-id 'null))
+              (setf (gethash "next_since_id" cursors) (or next-since-id 'null))
+              (setf (gethash "cursors" response-data) cursors)
+              ;; pagination フィールド
+              (setf (gethash "count" pagination) count)
+              (setf (gethash "limit" pagination) count)
+              (setf (gethash "offset" pagination) (if (eq mode :offset) offset 'null))
+              (setf (gethash "has_more" pagination) has-more)
+              (setf (gethash "pagination" response-data) pagination)
+              (response-success response-data))))))))
 
 ;;; ============================================================
 ;;; ルート登録
