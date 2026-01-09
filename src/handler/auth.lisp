@@ -42,6 +42,9 @@
                 :register-user
                 :authenticate-user
                 :check-rate-limit
+                :check-login-rate-limit
+                :decrement-login-rate-limit
+                :check-register-rate-limit
                 :check-account-lockout
                 :record-login-failure
                 :clear-login-failures)
@@ -79,12 +82,10 @@
   (let* ((client-ip (get-client-ip))
          (body (parse-json-body)))
 
-    ;; レート制限チェック
-    (multiple-value-bind (allowed remaining)
-        (check-rate-limit :register client-ip
-                          :limit 3
-                          :window 3600)
-      (declare (ignore remaining))
+    ;; レート制限チェック（:always モード: チェック時に自動カウント）
+    (multiple-value-bind (allowed remaining reset-time)
+        (check-register-rate-limit client-ip)
+      (declare (ignore remaining reset-time))
       (unless allowed
         (log-warn "Rate limit exceeded for registration"
                   :context (list :|ip| client-ip))
@@ -111,15 +112,13 @@
                         :context (list :|username| username
                                        :|user_id| user-id
                                        :|session| (mask-session-id session-id)))
-              ;; レート制限カウントを増加（成功時も）
-              (twitter-like.service.auth::increment-rate-limit :register client-ip :window 3600)
+              ;; 注: :always モードのため、check-register-rate-limit でカウント済み
               (let ((response-data (make-hash-table :test 'equal)))
                 (setf (gethash "user" response-data) (user-to-public-json user))
                 (response-with-cookie 201 response-data cookie)))
             ;; 失敗 - エラー種別に応じてログレベルを分類
-            (progn
-              (twitter-like.service.auth::increment-rate-limit :register client-ip :window 3600)
-              (cond
+            ;; 注: :always モードのため、check-register-rate-limit でカウント済み
+            (cond
                 ;; クライアント起因（バリデーションエラー）: log-warn、error_idなし
                 ((or (search "Username" error-message)
                      (search "Password" error-message)
@@ -133,7 +132,7 @@
                  (let ((error-id (log-error "Registration failed"
                                              :context (list :|username| username
                                                             :|error| error-message))))
-                   (response-error 400 error-message :error-id error-id))))))))))
+                   (response-error 400 error-message :error-id error-id)))))))))
 
 ;;; ============================================================
 ;;; POST /api/auth/login
@@ -159,17 +158,17 @@
         (return-from login-handler
           (response-error 400 "Username is required")))
 
-      ;; IPベースレート制限チェック
-      (multiple-value-bind (allowed remaining)
-          (check-rate-limit :login client-ip)
-        (declare (ignore remaining))
+      ;; IPベースレート制限チェック（:optimistic モード: 試行時にカウント）
+      (multiple-value-bind (allowed remaining reset-time member-id)
+          (check-login-rate-limit client-ip)
+        (declare (ignore remaining reset-time))
         (unless allowed
           (log-warn "Rate limit exceeded for login"
                     :context (list :|ip| client-ip :|username| username))
           (return-from login-handler
-            (response-error 429 "Too many login attempts. Please try again later."))))
+            (response-error 429 "Too many login attempts. Please try again later.")))
 
-      ;; アカウントロックアウトチェック
+        ;; アカウントロックアウトチェック
       (multiple-value-bind (locked remaining-seconds)
           (check-account-lockout username)
         (when locked
@@ -189,6 +188,9 @@
                    ;; セッションローテーション（セッション固定攻撃対策）
                    (session-id (rotate-session existing-session-id user-id))
                    (cookie (build-session-cookie session-id)))
+              ;; :optimistic モード成功時: カウントをデクリメント
+              (when member-id
+                (decrement-login-rate-limit client-ip member-id))
               ;; ログイン失敗カウントをクリア
               (clear-login-failures username)
               (log-info "User logged in"
@@ -198,10 +200,8 @@
               (let ((response-data (make-hash-table :test 'equal)))
                 (setf (gethash "user" response-data) (user-to-public-json user))
                 (response-with-cookie 200 response-data cookie)))
-            ;; 認証失敗
+            ;; 認証失敗: :optimistic モードでは既にカウント済みなので追加カウント不要
             (progn
-              ;; レート制限カウント増加
-              (twitter-like.service.auth::increment-rate-limit :login client-ip)
               ;; ログイン失敗を記録
               (multiple-value-bind (locked count)
                   (record-login-failure username)
@@ -211,7 +211,7 @@
               ;; クライアント起因エラー: log-warn、error_idなし
               (log-warn "Login failed"
                         :context (list :|username| username))
-              (response-error 401 error-message)))))))
+              (response-error 401 error-message))))))))
 
 ;;; ============================================================
 ;;; POST /api/auth/logout

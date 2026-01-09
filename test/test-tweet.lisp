@@ -345,3 +345,48 @@
                 "Limit should be 2")
             (ok (gethash "has_more" pagination)
                 "Should have more tweets")))))))
+
+;;; ============================================================
+;;; 無効パラメータテスト（Phase 2）
+;;; ============================================================
+
+(deftest test-get-user-tweets-non-integer-max-id
+  (testing "GET /api/users/:username/tweets with non-integer max_id returns 400"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore cookie csrf))
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:safe-get
+            (format nil "/api/users/~A/tweets?max_id=abc" username))
+        (declare (ignore body headers))
+        (ok (= status 400) "Should return 400 Bad Request for non-integer max_id")))))
+
+(deftest test-get-user-tweets-non-integer-since-id
+  (testing "GET /api/users/:username/tweets with non-integer since_id returns 400"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore cookie csrf))
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:safe-get
+            (format nil "/api/users/~A/tweets?since_id=abc" username))
+        (declare (ignore body headers))
+        (ok (= status 400) "Should return 400 Bad Request for non-integer since_id")))))
+
+(deftest test-get-user-tweets-non-integer-count
+  (testing "GET /api/users/:username/tweets with non-integer count returns 400"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore cookie csrf))
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:safe-get
+            (format nil "/api/users/~A/tweets?count=abc" username))
+        (declare (ignore body headers))
+        (ok (= status 400) "Should return 400 Bad Request for non-integer count")))))
+
+(deftest test-get-user-tweets-overflow-max-id
+  (testing "GET /api/users/:username/tweets with overflow max_id returns 400"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore cookie csrf))
+      ;; bigint 範囲超過（9223372036854775807 = 2^63-1）
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:safe-get
+            (format nil "/api/users/~A/tweets?max_id=99999999999999999999999" username))
+        (declare (ignore body headers))
+        (ok (= status 400) "Should return 400 Bad Request for overflow max_id")))))
