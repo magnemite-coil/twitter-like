@@ -176,11 +176,20 @@
 
 (defun validate-content-type ()
   "Content-Typeがapplication/jsonであることを検証（OWASP準拠）
-  戻り値: (values valid-p error-status error-message)"
+   - 大文字小文字を無視（RFC 7231準拠）
+   - メディアタイプのみを比較（パラメータは無視）
+   - 部分一致を防止（application/jsonp等を拒否）
+   戻り値: (values valid-p error-status error-message)"
   (let ((content-type (get-content-type)))
-    (if (and content-type
-             (search "application/json" content-type))
-        (values t nil nil)
+    (if content-type
+        ;; メディアタイプ部分を抽出（セミコロン以前、前後の空白を除去）
+        (let* ((semicolon-pos (position #\; content-type))
+               (media-type (str:trim (if semicolon-pos
+                                         (subseq content-type 0 semicolon-pos)
+                                         content-type))))
+          (if (string-equal media-type "application/json")
+              (values t nil nil)
+              (values nil 415 "Unsupported Media Type")))
         (values nil 415 "Unsupported Media Type"))))
 
 (defun get-query-param (name &key (default nil) (type :string))

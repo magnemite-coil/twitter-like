@@ -134,10 +134,12 @@
             (list 429 merged-headers (third base-response))))))
 
     ;; リクエストボディのパース
-    (let ((body (parse-json-body)))
+    (multiple-value-bind (body parse-error-reason) (parse-json-body)
       (unless body
         (return-from create-tweet-handler
-          (response-error 400 "Invalid request body")))
+          (if (eq parse-error-reason :too-large)
+              (response-error 413 "Request body too large")
+              (response-error 400 "Invalid request body"))))
 
       (let ((content (gethash "content" body)))
         ;; ツイート作成

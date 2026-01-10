@@ -22,7 +22,8 @@
                 :parse-json-body
                 :get-session-id-from-cookie
                 :get-csrf-header
-                :get-client-ip)
+                :get-client-ip
+                :validate-content-type)
   (:import-from :twitter-like.middleware.session
                 :create-session
                 :get-session-user-id
@@ -79,10 +80,17 @@
 (defun register-handler (params)
   "ユーザー登録ハンドラー"
   (declare (ignore params))
-  (let* ((client-ip (get-client-ip))
-         (body (parse-json-body)))
 
-    ;; レート制限チェック（:always モード: チェック時に自動カウント）
+  ;; Content-Type検証（OWASP準拠 - 認証チェックより先に実施）
+  (multiple-value-bind (valid-p error-status error-message) (validate-content-type)
+    (unless valid-p
+      (return-from register-handler
+        (response-error error-status error-message))))
+
+  (let ((client-ip (get-client-ip)))
+    (multiple-value-bind (body parse-error-reason) (parse-json-body)
+
+      ;; レート制限チェック（:always モード: チェック時に自動カウント）
     (multiple-value-bind (allowed remaining reset-time)
         (check-register-rate-limit client-ip)
       (declare (ignore remaining reset-time))
@@ -95,7 +103,9 @@
     ;; リクエストボディの検証
     (unless body
       (return-from register-handler
-        (response-error 400 "Invalid request body")))
+        (if (eq parse-error-reason :too-large)
+            (response-error 413 "Request body too large")
+            (response-error 400 "Invalid request body"))))
 
     (let ((username (gethash "username" body))
           (password (gethash "password" body)))
@@ -136,7 +146,7 @@
                (let ((error-id (log-error "Registration failed with unknown error type"
                                            :context (list :|username| username
                                                           :|error| error-message))))
-                 (response-error 500 "An internal error occurred" :error-id error-id)))))))))
+                 (response-error 500 "An internal error occurred" :error-id error-id))))))))))
 
 ;;; ============================================================
 ;;; POST /api/auth/login
@@ -145,14 +155,23 @@
 (defun login-handler (params)
   "ログインハンドラー"
   (declare (ignore params))
-  (let* ((client-ip (get-client-ip))
-         (body (parse-json-body))
-         (existing-session-id (get-session-id-from-cookie)))
 
-    ;; リクエストボディの検証
-    (unless body
+  ;; Content-Type検証（OWASP準拠 - 認証チェックより先に実施）
+  (multiple-value-bind (valid-p error-status error-message) (validate-content-type)
+    (unless valid-p
       (return-from login-handler
-        (response-error 400 "Invalid request body")))
+        (response-error error-status error-message))))
+
+  (let* ((client-ip (get-client-ip))
+         (existing-session-id (get-session-id-from-cookie)))
+    (multiple-value-bind (body parse-error-reason) (parse-json-body)
+
+      ;; リクエストボディの検証
+      (unless body
+        (return-from login-handler
+          (if (eq parse-error-reason :too-large)
+              (response-error 413 "Request body too large")
+              (response-error 400 "Invalid request body"))))
 
     (let ((username (gethash "username" body))
           (password (gethash "password" body)))
@@ -215,7 +234,7 @@
               ;; クライアント起因エラー: log-warn、error_idなし
               (log-warn "Login failed"
                         :context (list :|username| username))
-              (response-error 401 error-message))))))))
+              (response-error 401 error-message)))))))))
 
 ;;; ============================================================
 ;;; POST /api/auth/logout
