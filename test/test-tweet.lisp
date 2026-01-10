@@ -443,3 +443,121 @@
             (let ((response (com.inuoe.jzon:parse body)))
               (ok (gethash "error" response)
                   "Should have error message"))))))))
+
+;;; ============================================================
+;;; Content-Type検証テスト（POST /api/tweets 415）
+;;; ============================================================
+
+(deftest test-create-tweet-invalid-content-type
+  (testing "POST /api/tweets with text/plain returns 415"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore username))
+      (multiple-value-bind (body status headers)
+          (handler-case
+              (dex:post (make-url "/api/tweets")
+                        :headers `(("Content-Type" . "text/plain")
+                                   ("Connection" . "close")
+                                   ("cookie" . ,cookie)
+                                   ("x-csrf-token" . ,csrf))
+                        :content "Hello, Twitter!")
+            (dexador.error:http-request-failed (e)
+              (values (dexador:response-body e)
+                      (dexador:response-status e)
+                      (dexador:response-headers e))))
+        (declare (ignore body headers))
+        (ok (= status 415) "Should return 415 Unsupported Media Type")))))
+
+;;; ============================================================
+;;; 絵文字文字数カウントテスト
+;;; ============================================================
+
+(deftest test-create-tweet-emoji-counts-as-two
+  (testing "POST /api/tweets with 70 emojis (=140 chars) succeeds"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore username))
+      ;; 70個の絵文字 = 70 × 2 = 140文字
+      (let ((emoji-content (format nil "~{~A~}" (loop repeat 70 collect "👍"))))
+        (multiple-value-bind (body status headers)
+            (twitter-like-test:json-post "/api/tweets"
+                       (let ((h (make-hash-table :test 'equal)))
+                         (setf (gethash "content" h) emoji-content)
+                         h)
+                       :headers `(("cookie" . ,cookie)
+                                  ("x-csrf-token" . ,csrf)))
+          (declare (ignore headers body))
+          (ok (= status 201) "Should return 201 Created"))))))
+
+(deftest test-create-tweet-emoji-over-limit
+  (testing "POST /api/tweets with 71 emojis (=142 chars) returns 400"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore username))
+      ;; 71個の絵文字 = 71 × 2 = 142文字
+      (let ((emoji-content (format nil "~{~A~}" (loop repeat 71 collect "👍"))))
+        (multiple-value-bind (body status headers)
+            (twitter-like-test:json-post "/api/tweets"
+                       (let ((h (make-hash-table :test 'equal)))
+                         (setf (gethash "content" h) emoji-content)
+                         h)
+                       :headers `(("cookie" . ,cookie)
+                                  ("x-csrf-token" . ,csrf)))
+          (declare (ignore headers))
+          (ok (= status 400) "Should return 400 Bad Request")
+          (let ((response (com.inuoe.jzon:parse body)))
+            (ok (search "140" (gethash "error" response))
+                "Error message should mention 140 character limit")))))))
+
+;;; ============================================================
+;;; 無効パラメータテスト（残り）
+;;; ============================================================
+
+(deftest test-get-user-tweets-invalid-limit
+  (testing "GET /api/users/:username/tweets with limit=200 uses default"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore cookie csrf))
+      ;; limit=200（範囲外）→ デフォルト20にフォールバック
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:safe-get
+            (format nil "/api/users/~A/tweets?limit=200" username))
+        (declare (ignore headers))
+        (ok (= status 200) "Should return 200 OK")
+        (let* ((response (com.inuoe.jzon:parse body))
+               (pagination (gethash "pagination" response)))
+          (ok (= (gethash "limit" pagination) 20)
+              "Should use default limit 20"))))))
+
+(deftest test-get-user-tweets-non-integer-limit
+  (testing "GET /api/users/:username/tweets with limit=abc returns 400"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore cookie csrf))
+      ;; limit=abc（非整数）→ 400エラー
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:safe-get
+            (format nil "/api/users/~A/tweets?limit=abc" username))
+        (declare (ignore body headers))
+        (ok (= status 400) "Should return 400 Bad Request for non-integer limit")))))
+
+(deftest test-get-user-tweets-invalid-count
+  (testing "GET /api/users/:username/tweets with count=200 uses default"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore cookie csrf))
+      ;; count=200（上限100を超過）→ デフォルト20にフォールバック
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:safe-get
+            (format nil "/api/users/~A/tweets?count=200" username))
+        (declare (ignore headers))
+        (ok (= status 200) "Should return 200 OK")
+        (let* ((response (com.inuoe.jzon:parse body))
+               (pagination (gethash "pagination" response)))
+          (ok (= (gethash "count" pagination) 20)
+              "Should use default count 20 for out-of-range value"))))))
+
+(deftest test-get-user-tweets-non-integer-offset
+  (testing "GET /api/users/:username/tweets with offset=abc returns 400"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore cookie csrf))
+      ;; offset=abc（非整数）→ 400エラー
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:safe-get
+            (format nil "/api/users/~A/tweets?offset=abc" username))
+        (declare (ignore body headers))
+        (ok (= status 400) "Should return 400 Bad Request for non-integer offset")))))
