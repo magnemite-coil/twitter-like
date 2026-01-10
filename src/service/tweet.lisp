@@ -180,7 +180,9 @@
 
 (defun find-tweets-with-user-by-user-id (user-id &key max-id since-id (count 20) (offset 0) (mode :cursor))
   "ツイートとユーザー情報を一括取得（N+1クエリ回避、cursor/offset両対応）"
-  (let ((conditions (list (list := :t.user_id user-id))))
+  ;; 防御的チェック: countがnilの場合はデフォルト値を使用
+  (let ((effective-count (or count 20))
+        (conditions (list (list := :t.user_id user-id))))
     (when (eq mode :cursor)
       (when max-id
         (push (list :<= :t.id max-id) conditions))
@@ -197,7 +199,7 @@
               (sxql:inner-join (:as :user :u) :on (:= :t.user_id :u.id))
               (sxql:where where-clause)
               (sxql:order-by (:desc :t.id))
-              (sxql:limit (1+ count))
+              (sxql:limit (1+ effective-count))
               (sxql:offset offset))
             (sxql:select (:t.id :t.user_id :t.content :t.created_at
                           (:as :u.id :user_id_from_join)
@@ -207,26 +209,30 @@
               (sxql:inner-join (:as :user :u) :on (:= :t.user_id :u.id))
               (sxql:where where-clause)
               (sxql:order-by (:desc :t.id))
-              (sxql:limit (1+ count))))))))
+              (sxql:limit (1+ effective-count))))))))
 
 (defun get-tweets-by-user-with-user-info (user-id &key max-id since-id (count 20) (offset 0) (mode :cursor))
   "ユーザーのツイート一覧を取得（ユーザー情報付き、N+1解消、cursor/offset両対応）
    戻り値: (values tweets-json has-more next-max-id next-since-id)"
-  (let* ((rows (find-tweets-with-user-by-user-id user-id
+  ;; 防御的チェック: countがnilの場合はデフォルト値を使用
+  (let* ((effective-count (or count 20))
+         (rows (find-tweets-with-user-by-user-id user-id
                                                   :max-id max-id
                                                   :since-id since-id
-                                                  :count count
+                                                  :count effective-count
                                                   :offset offset
                                                   :mode mode))
-         (has-more (> (length rows) count))
+         (has-more (> (length rows) effective-count))
          (trimmed-rows (if has-more
                            (butlast rows)
                            rows))
          (last-row (first (last trimmed-rows)))
-         (next-max-id (when (and trimmed-rows (eq mode :cursor))
-                        (1- (getf last-row :|id|))))
-         (next-since-id (when (and trimmed-rows (eq mode :cursor))
-                          (getf (first trimmed-rows) :|id|))))
+         (last-id (when last-row (getf last-row :|id|)))
+         (first-id (when trimmed-rows (getf (first trimmed-rows) :|id|)))
+         (next-max-id (when (and last-id (eq mode :cursor))
+                        (1- last-id)))
+         (next-since-id (when (and first-id (eq mode :cursor))
+                          first-id)))
     (values (mapcar #'row-to-tweet-json trimmed-rows)
             has-more
             next-max-id

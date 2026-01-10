@@ -561,3 +561,93 @@
             (format nil "/api/users/~A/tweets?offset=abc" username))
         (declare (ignore body headers))
         (ok (= status 400) "Should return 400 Bad Request for non-integer offset")))))
+
+;;; ============================================================
+;;; カーソルページネーション成功系テスト（Phase 2）
+;;; ============================================================
+
+(deftest test-cursor-pagination-with-max-id
+  (testing "GET /api/users/:username/tweets with count returns correct cursors"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      ;; 5件のツイートを作成
+      (let ((created-ids nil))
+        (loop for i from 1 to 5
+              do (multiple-value-bind (body status headers)
+                     (twitter-like-test:json-post "/api/tweets"
+                                (let ((h (make-hash-table :test 'equal)))
+                                  (setf (gethash "content" h)
+                                        (format nil "Cursor test ~A" i))
+                                  h)
+                                :headers `(("cookie" . ,cookie)
+                                           ("x-csrf-token" . ,csrf)))
+                   (declare (ignore headers))
+                   (when (= status 201)
+                     (let ((tweet (gethash "tweet" (com.inuoe.jzon:parse body))))
+                       (when tweet
+                         (push (gethash "id" tweet) created-ids))))))
+        (ok (>= (length created-ids) 5) "Should have created 5 tweets")
+        ;; 最初のページを取得（count=2）
+        (multiple-value-bind (body status headers)
+            (twitter-like-test:safe-get
+              (format nil "/api/users/~A/tweets?count=2" username))
+          (declare (ignore headers))
+          (ok (= status 200) "First page should return 200 OK")
+          (when (= status 200)
+            (let* ((response (com.inuoe.jzon:parse body))
+                   (tweets (gethash "tweets" response))
+                   (cursors (gethash "cursors" response))
+                   (pagination (gethash "pagination" response)))
+              (ok (>= (length tweets) 2) "First page should have at least 2 tweets")
+              (ok pagination "Should have pagination object")
+              (ok cursors "Should have cursors object")
+              (when pagination
+                (ok (gethash "has_more" pagination) "Should have more tweets")))))))))
+
+(deftest test-cursor-pagination-with-since-id
+  (testing "GET /api/users/:username/tweets with since_id returns filtered tweets"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      ;; 3件のツイートを作成し、IDを記録
+      (let ((created-ids nil))
+        (loop for i from 1 to 3
+              do (multiple-value-bind (body status headers)
+                     (twitter-like-test:json-post "/api/tweets"
+                                (let ((h (make-hash-table :test 'equal)))
+                                  (setf (gethash "content" h)
+                                        (format nil "Since test ~A" i))
+                                  h)
+                                :headers `(("cookie" . ,cookie)
+                                           ("x-csrf-token" . ,csrf)))
+                   (declare (ignore headers))
+                   (when (= status 201)
+                     (let ((tweet (gethash "tweet" (com.inuoe.jzon:parse body))))
+                       (when tweet
+                         (push (gethash "id" tweet) created-ids))))))
+        (ok (>= (length created-ids) 3) "Should have created 3 tweets")
+        ;; created-ids は新しい順（ID大→小）になっている
+        ;; 一番古い（最初に作成された）ツイートのIDを取得
+        (when (>= (length created-ids) 3)
+          (let ((oldest-id (first (last created-ids))))  ; 最小ID
+            (multiple-value-bind (body status headers)
+                (twitter-like-test:safe-get
+                  (format nil "/api/users/~A/tweets?since_id=~A" username oldest-id))
+              (declare (ignore headers))
+              (ok (= status 200) "Should return 200 OK")
+              (when (= status 200)
+                (let* ((response (com.inuoe.jzon:parse body))
+                       (tweets (gethash "tweets" response)))
+                  ;; since_id より大きいIDのツイートのみ返される（2件）
+                  (ok (= (length tweets) 2) "Should return 2 tweets newer than since_id"))))))))))
+
+(deftest test-offset-too-large
+  (testing "GET /api/users/:username/tweets with offset > 10000 returns 400"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore cookie csrf))
+      ;; offset=10001（上限超過）→ 400エラー
+      (multiple-value-bind (body status headers)
+          (twitter-like-test:safe-get
+            (format nil "/api/users/~A/tweets?offset=10001" username))
+        (declare (ignore headers))
+        (ok (= status 400) "Should return 400 Bad Request for offset > 10000")
+        (let ((response (com.inuoe.jzon:parse body)))
+          (ok (search "10000" (gethash "error" response))
+              "Error message should mention maximum offset"))))))

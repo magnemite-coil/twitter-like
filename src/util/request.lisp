@@ -22,7 +22,8 @@
            :clamp-count
            :parse-cursor-param
            :get-query-param-cursor
-           :+max-bigint+))
+           :+max-bigint+
+           :+max-offset+))
 
 (in-package :twitter-like.util.request)
 
@@ -33,9 +34,25 @@
 (defconstant +max-body-size+ (* 1 1024 1024)
   "リクエストボディの最大サイズ: 1MB（DoS対策）")
 
+(defun read-stream-with-limit (stream max-size)
+  "ストリームから上限付きでバイト列を読み取る（チャンク転送対応）
+   上限を超えた場合は :overflow を返す"
+  (let ((buffer (make-array 4096 :element-type '(unsigned-byte 8)))
+        (result (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
+    (loop
+      (let ((bytes-read (read-sequence buffer stream)))
+        (when (zerop bytes-read)
+          (return result))
+        (when (> (+ (length result) bytes-read) max-size)
+          (return :overflow))
+        (loop for i from 0 below bytes-read
+              do (vector-push-extend (aref buffer i) result))))))
+
 (defun parse-json-body ()
   "リクエストボディをJSONとしてパース
-   セキュリティ: Content-Length が +max-body-size+ を超える場合は拒否"
+   セキュリティ:
+   - Content-Length が +max-body-size+ を超える場合は拒否
+   - Content-Length がない場合（チャンク転送等）は上限付きでストリーム読み取り"
   (handler-case
       (let ((env (get-env)))
         (let* ((content-length-raw (getf env :content-length))
@@ -48,12 +65,28 @@
             (log-warn "Request body too large"
                       :context (list :|content_length| content-length
                                      :|max_size| +max-body-size+))
-            (return-from parse-json-body nil))
-          (when (and content-length body-stream (> content-length 0))
-            (let ((body-bytes (make-array content-length :element-type '(unsigned-byte 8))))
-              (read-sequence body-bytes body-stream)
-              (let ((body-string (babel:octets-to-string body-bytes :encoding :utf-8)))
-                (com.inuoe.jzon:parse body-string))))))
+            (return-from parse-json-body (values nil :too-large)))
+          (cond
+            ;; Content-Length がある場合: 既存のロジック
+            ((and content-length body-stream (> content-length 0))
+             (let ((body-bytes (make-array content-length :element-type '(unsigned-byte 8))))
+               (read-sequence body-bytes body-stream)
+               (let ((body-string (babel:octets-to-string body-bytes :encoding :utf-8)))
+                 (com.inuoe.jzon:parse body-string))))
+            ;; Content-Length がない場合（チャンク転送等）: 上限付きで読み取り
+            ((and (null content-length) body-stream)
+             (let ((body-bytes (read-stream-with-limit body-stream +max-body-size+)))
+               (cond
+                 ((eq body-bytes :overflow)
+                  (log-warn "Request body too large (chunked)"
+                            :context (list :|max_size| +max-body-size+))
+                  (values nil :too-large))
+                 ((zerop (length body-bytes))
+                  nil)
+                 (t
+                  (let ((body-string (babel:octets-to-string body-bytes :encoding :utf-8)))
+                    (com.inuoe.jzon:parse body-string))))))
+            (t nil))))
     (error (e)
       (log-warn "Failed to parse JSON body"
                 :context (list :|error| (princ-to-string e)))
@@ -176,6 +209,10 @@
 (defconstant +max-bigint+ 9223372036854775807
   "PostgreSQL bigint の上限値")
 
+(defconstant +max-offset+ 10000
+  "offsetの上限値（パフォーマンス保護）
+   大きなoffsetはDBに負荷がかかるため、カーソル方式への移行を推奨")
+
 (defun clamp-pagination-count (value &key (min 1) (max 100) (default 20))
   "ページネーションのcount/limitを有効範囲に制限"
   (cond
@@ -229,6 +266,12 @@
             (unless offset-valid
               (return-from get-query-param-cursor
                 (values nil nil nil nil :error "Invalid offset: must be an integer")))
+
+            ;; offset 上限チェック（パフォーマンス保護）
+            (when (and offset (> offset +max-offset+))
+              (return-from get-query-param-cursor
+                (values nil nil nil nil :error
+                        (format nil "Offset too large: maximum is ~A. Use cursor-based pagination (max_id/since_id) for better performance." +max-offset+))))
 
             (let ((mode (cond
                           ((or max-id since-id) :cursor)
