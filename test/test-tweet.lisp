@@ -390,3 +390,56 @@
             (format nil "/api/users/~A/tweets?max_id=99999999999999999999999" username))
         (declare (ignore body headers))
         (ok (= status 400) "Should return 400 Bad Request for overflow max_id")))))
+
+;;; ============================================================
+;;; レート制限テスト（POST /api/tweets 429）
+;;; ============================================================
+
+(defun simulate-rate-limit-exceeded (user-id)
+  "レート制限超過をシミュレート（Redisに直接カウントを設定）"
+  (let* ((now (twitter-like.util.time:get-unix-time))
+         (key (format nil "rate:tweet:user:~A" user-id)))
+    ;; 61件のエントリを追加（制限は60件）
+    (loop for i from 1 to 61
+          do (red:zadd key (- now i) (format nil "~A" (- now i))))
+    ;; TTLを設定
+    (red:expire key 3600)))
+
+(deftest test-create-tweet-rate-limit
+  (testing "POST /api/tweets returns 429 with Retry-After header when rate limited"
+    (multiple-value-bind (cookie csrf username) (register-and-get-session)
+      (declare (ignore username))
+      ;; /api/auth/me でuser_idを取得
+      (multiple-value-bind (me-body me-status me-headers)
+          (dex:get (make-url "/api/auth/me")
+                   :headers `(("cookie" . ,cookie)))
+        (declare (ignore me-status me-headers))
+        (let* ((me-response (com.inuoe.jzon:parse me-body))
+               (user-id (gethash "id" (gethash "user" me-response))))
+          ;; レート制限超過をシミュレート
+          (simulate-rate-limit-exceeded user-id)
+          ;; ツイート投稿を試みる
+          (multiple-value-bind (body status headers)
+              (twitter-like-test:json-post "/api/tweets"
+                         (let ((h (make-hash-table :test 'equal)))
+                           (setf (gethash "content" h) "This should be rate limited")
+                           h)
+                         :headers `(("cookie" . ,cookie)
+                                    ("x-csrf-token" . ,csrf)))
+            (ok (= status 429) "Should return 429 Too Many Requests")
+            ;; Retry-After ヘッダーの確認
+            (ok (gethash "retry-after" headers)
+                "Should have Retry-After header")
+            ;; X-RateLimit-* ヘッダーの確認
+            (ok (gethash "x-ratelimit-limit" headers)
+                "Should have X-RateLimit-Limit header")
+            (ok (gethash "x-ratelimit-remaining" headers)
+                "Should have X-RateLimit-Remaining header")
+            (ok (string= (gethash "x-ratelimit-remaining" headers) "0")
+                "X-RateLimit-Remaining should be 0")
+            (ok (gethash "x-ratelimit-reset" headers)
+                "Should have X-RateLimit-Reset header")
+            ;; エラーメッセージの確認
+            (let ((response (com.inuoe.jzon:parse body)))
+              (ok (gethash "error" response)
+                  "Should have error message"))))))))

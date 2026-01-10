@@ -182,30 +182,32 @@
 
 (defun register-user (username password)
   "ユーザーを登録
-  戻り値: (values user error-message)
-  - 成功時: (values user nil)
-  - 失敗時: (values nil error-message)"
+  戻り値: (values user error-message error-type internal-error-detail)
+  - 成功時: (values user nil nil nil)
+  - バリデーション失敗時: (values nil error-message :validation nil)
+  - 内部エラー時: (values nil generic-message :internal detail-for-logging)"
   ;; バリデーション
   (multiple-value-bind (valid-username username-error) (validate-username username)
     (unless valid-username
-      (return-from register-user (values nil username-error))))
+      (return-from register-user (values nil username-error :validation nil))))
 
   (multiple-value-bind (valid-password password-error) (validate-password password)
     (unless valid-password
-      (return-from register-user (values nil password-error))))
+      (return-from register-user (values nil password-error :validation nil))))
 
   ;; ユーザー名の重複チェック
   (when (twitter-like.model.user:find-user-by-username username)
-    (return-from register-user (values nil "Username already exists")))
+    (return-from register-user (values nil "Username already exists" :validation nil)))
 
   ;; パスワードハッシュ化とユーザー作成
   (handler-case
       (let* ((password-hash (twitter-like.util.crypto:hash-password password))
              (hash-string (ironclad:byte-array-to-hex-string password-hash))
              (user (twitter-like.model.user:create-user username hash-string)))
-        (values user nil))
+        (values user nil nil nil))
     (error (e)
-      (values nil (format nil "Registration failed: ~A" e)))))
+      ;; 内部例外: クライアントには汎用メッセージ、ログには詳細
+      (values nil "Registration failed" :internal (format nil "~A" e)))))
 
 ;;; ============================================================
 ;;; 認証

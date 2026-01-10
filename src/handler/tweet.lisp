@@ -303,7 +303,7 @@
                   ;; pagination フィールド
                   (setf (gethash "count" pagination) count)
                   (setf (gethash "limit" pagination) count)
-                  (setf (gethash "offset" pagination) (if (eq mode :offset) offset 'null))
+                  (setf (gethash "offset" pagination) (if (eq mode :offset) (or offset 0) 'null))
                   (setf (gethash "has_more" pagination) has-more)
                   (setf (gethash "pagination" response-data) pagination)
                   (response-success response-data)))))))

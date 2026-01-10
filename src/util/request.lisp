@@ -30,8 +30,12 @@
   "ningleのコンテキストからリクエスト環境を取得"
   (lack.request:request-env (ningle:context :request)))
 
+(defconstant +max-body-size+ (* 1 1024 1024)
+  "リクエストボディの最大サイズ: 1MB（DoS対策）")
+
 (defun parse-json-body ()
-  "リクエストボディをJSONとしてパース"
+  "リクエストボディをJSONとしてパース
+   セキュリティ: Content-Length が +max-body-size+ を超える場合は拒否"
   (handler-case
       (let ((env (get-env)))
         (let* ((content-length-raw (getf env :content-length))
@@ -39,6 +43,12 @@
                                    (parse-integer content-length-raw :junk-allowed t)
                                    content-length-raw))
                (body-stream (getf env :raw-body)))
+          ;; Content-Length 上限チェック（DoS対策）
+          (when (and content-length (> content-length +max-body-size+))
+            (log-warn "Request body too large"
+                      :context (list :|content_length| content-length
+                                     :|max_size| +max-body-size+))
+            (return-from parse-json-body nil))
           (when (and content-length body-stream (> content-length 0))
             (let ((body-bytes (make-array content-length :element-type '(unsigned-byte 8))))
               (read-sequence body-bytes body-stream)
@@ -49,12 +59,36 @@
                 :context (list :|error| (princ-to-string e)))
       nil)))
 
+(defun trust-proxy-p ()
+  "プロキシを信頼するかどうかを環境変数から判定
+   TRUST_PROXY=true または TRUST_PROXY=1 の場合のみ true を返す"
+  (let ((trust-proxy (uiop:getenv "TRUST_PROXY")))
+    (and trust-proxy
+         (or (string-equal trust-proxy "true")
+             (string-equal trust-proxy "1")))))
+
+(defun parse-x-forwarded-for (xff-header)
+  "X-Forwarded-Forヘッダーから最初のIPアドレスを抽出
+   形式: 'client, proxy1, proxy2' の場合、最初のclientを返す"
+  (when (and xff-header (stringp xff-header) (> (length xff-header) 0))
+    (let ((first-ip (str:trim (first (str:split "," xff-header)))))
+      (when (> (length first-ip) 0)
+        first-ip))))
+
 (defun get-client-ip ()
-  "クライアントIPアドレスを取得（X-Forwarded-For対応）"
+  "クライアントIPアドレスを取得
+   セキュリティ: X-Forwarded-Forは信頼できるプロキシ経由時のみ使用
+   - TRUST_PROXY=true/1 の場合: X-Forwarded-Forの最初のIPを使用
+   - それ以外: remote-addrを使用（プロキシ偽装攻撃対策）"
   (let ((env (get-env)))
-    (or (getf env :http-x-forwarded-for)
-        (getf env :remote-addr)
-        "unknown")))
+    (if (trust-proxy-p)
+        ;; 信頼できるプロキシ経由: X-Forwarded-Forを使用
+        (or (parse-x-forwarded-for (getf env :http-x-forwarded-for))
+            (getf env :remote-addr)
+            "unknown")
+        ;; プロキシを信頼しない: remote-addrのみ使用
+        (or (getf env :remote-addr)
+            "unknown"))))
 
 (defun parse-cookie-string (cookie-string)
   "Cookie文字列をパースしてセッションIDを抽出"
