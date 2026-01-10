@@ -91,13 +91,15 @@
             "unknown"))))
 
 (defun parse-cookie-string (cookie-string)
-  "Cookie文字列をパースしてセッションIDを抽出"
+  "Cookie文字列をパースしてセッションIDを抽出
+   RFC 6265準拠: セミコロン区切り（空白の有無に関わらず対応）"
   (when (and cookie-string (stringp cookie-string) (> (length cookie-string) 0))
-    (loop for pair in (str:split "; " cookie-string)
-          for eq-pos = (position #\= pair)
+    (loop for pair in (str:split ";" cookie-string)
+          for trimmed-pair = (str:trim pair)
+          for eq-pos = (position #\= trimmed-pair)
           when eq-pos
-          do (let ((name (subseq pair 0 eq-pos))
-                   (value (subseq pair (1+ eq-pos))))
+          do (let ((name (subseq trimmed-pair 0 eq-pos))
+                   (value (subseq trimmed-pair (1+ eq-pos))))
                (when (string= name "session_id")
                  (return value))))))
 

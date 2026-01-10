@@ -20,8 +20,7 @@
   (:import-from :twitter-like.util.json
                 :value-or-json-null)
   (:import-from :twitter-like.util.rate-limit
-                :check-and-increment
-                :ensure-integer)
+                :check-and-increment)
   (:import-from :ironclad
                 :byte-array-to-hex-string
                 :random-data)

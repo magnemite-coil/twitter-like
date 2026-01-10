@@ -280,12 +280,13 @@
 
     ;; セッションの検証
     (unless session-id
+      ;; セキュリティ: ヘッダー名のみをログ出力（Cookie/Authorization等の機密値は除外）
       (log-warn "Session cookie missing on /api/auth/me"
                 :context (let* ((hdrs (getf (get-env) :headers))
-                                (pairs (when (hash-table-p hdrs)
-                                         (loop for k being the hash-keys of hdrs
-                                               collect (cons k (gethash k hdrs))))))
-                           (list :|headers| pairs)))
+                                (header-names (when (hash-table-p hdrs)
+                                                (loop for k being the hash-keys of hdrs
+                                                      collect k))))
+                           (list :|header_names| header-names)))
       (return-from me-handler
         (response-error 401 "Unauthorized")))
 
