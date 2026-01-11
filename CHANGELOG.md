@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Unified rate limiting with Lua atomic operations (src/util/rate-limit.lisp)
   - :optimistic mode for login (count on attempt, decrement on success)
   - :always mode for registration (count on every attempt)
+  - IETF RateLimit structured headers (draft-09/10 compliant)
+    - `RateLimit: "default";r=<remaining>;t=<reset-seconds>`
+    - `RateLimit-Policy: "default";q=<quota>;w=<window>`
+    - Backward compatible X-RateLimit-* headers maintained
 
 - **Error Handling**
   - Added handler-case to get-user-tweets-handler for unexpected errors
