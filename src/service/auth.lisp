@@ -15,7 +15,12 @@
            :check-register-rate-limit
            :check-account-lockout
            :record-login-failure
-           :clear-login-failures))
+           :clear-login-failures
+           ;; Rate limit constants (for handler layer IETF headers)
+           :+login-rate-limit+
+           :+login-rate-window+
+           :+register-rate-limit+
+           :+register-rate-window+))
 
 (in-package :twitter-like.service.auth)
 

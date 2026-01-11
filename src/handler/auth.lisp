@@ -48,7 +48,16 @@
                 :check-register-rate-limit
                 :check-account-lockout
                 :record-login-failure
-                :clear-login-failures)
+                :clear-login-failures
+                ;; Rate limit constants
+                :+login-rate-limit+
+                :+login-rate-window+
+                :+register-rate-limit+
+                :+register-rate-window+)
+  (:import-from :twitter-like.util.rate-limit
+                :build-ratelimit-headers)
+  (:import-from :twitter-like.util.time
+                :get-unix-time)
   (:export :register-handler
            :login-handler
            :logout-handler
@@ -93,12 +102,22 @@
       ;; レート制限チェック（:always モード: チェック時に自動カウント）
     (multiple-value-bind (allowed remaining reset-time)
         (check-register-rate-limit client-ip)
-      (declare (ignore remaining reset-time))
       (unless allowed
         (log-warn "Rate limit exceeded for registration"
                   :context (list :|ip| client-ip))
-        (return-from register-handler
-          (response-error 429 "Too many registration attempts. Please try again later."))))
+        ;; IETF RateLimit構造化ヘッダー + X-RateLimit-*（後方互換）
+        (let* ((now (get-unix-time))
+               (effective-reset-time (or reset-time (+ now +register-rate-window+)))
+               (base-response (response-error 429 "Too many registration attempts. Please try again later."))
+               (base-headers (second base-response))
+               (rate-headers (build-ratelimit-headers +register-rate-limit+
+                                                      (or remaining 0)
+                                                      effective-reset-time
+                                                      +register-rate-window+
+                                                      now))
+               (merged-headers (append base-headers rate-headers)))
+          (return-from register-handler
+            (list 429 merged-headers (third base-response))))))
 
     ;; リクエストボディの検証
     (unless body
@@ -184,12 +203,22 @@
       ;; IPベースレート制限チェック（:optimistic モード: 試行時にカウント）
       (multiple-value-bind (allowed remaining reset-time member-id)
           (check-login-rate-limit client-ip)
-        (declare (ignore remaining reset-time))
         (unless allowed
           (log-warn "Rate limit exceeded for login"
                     :context (list :|ip| client-ip :|username| username))
-          (return-from login-handler
-            (response-error 429 "Too many login attempts. Please try again later.")))
+          ;; IETF RateLimit構造化ヘッダー + X-RateLimit-*（後方互換）
+          (let* ((now (get-unix-time))
+                 (effective-reset-time (or reset-time (+ now +login-rate-window+)))
+                 (base-response (response-error 429 "Too many login attempts. Please try again later."))
+                 (base-headers (second base-response))
+                 (rate-headers (build-ratelimit-headers +login-rate-limit+
+                                                        (or remaining 0)
+                                                        effective-reset-time
+                                                        +login-rate-window+
+                                                        now))
+                 (merged-headers (append base-headers rate-headers)))
+            (return-from login-handler
+              (list 429 merged-headers (third base-response)))))
 
         ;; アカウントロックアウトチェック
       (multiple-value-bind (locked remaining-seconds)

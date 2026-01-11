@@ -42,9 +42,12 @@
                 :check-and-increment-rate-limit
                 :+tweet-rate-limit+
                 :+tweet-rate-window+
-                :get-unix-time
                 ;; Phase 2
                 :get-tweets-by-user-with-user-info)
+  (:import-from :twitter-like.util.time
+                :get-unix-time)
+  (:import-from :twitter-like.util.rate-limit
+                :build-ratelimit-headers)
   (:export :create-tweet-handler
            :get-tweet-handler
            :delete-tweet-handler
@@ -124,12 +127,13 @@
                (base-headers (second base-response))
                (now (get-unix-time))
                (effective-reset-time (or reset-time (+ now +tweet-rate-window+)))
-               (retry-after (max 0 (- effective-reset-time now)))
-               (extra-headers (list :retry-after (write-to-string retry-after)
-                                    :x-ratelimit-limit (write-to-string +tweet-rate-limit+)
-                                    :x-ratelimit-remaining "0"
-                                    :x-ratelimit-reset (write-to-string effective-reset-time)))
-               (merged-headers (append base-headers extra-headers)))
+               ;; IETF RateLimit構造化ヘッダー + X-RateLimit-*（後方互換）
+               (rate-headers (build-ratelimit-headers +tweet-rate-limit+
+                                                      0  ; remaining
+                                                      effective-reset-time
+                                                      +tweet-rate-window+
+                                                      now))
+               (merged-headers (append base-headers rate-headers)))
           (return-from create-tweet-handler
             (list 429 merged-headers (third base-response))))))
 

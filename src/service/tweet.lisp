@@ -34,7 +34,6 @@
            :check-and-increment-rate-limit
            :+tweet-rate-limit+
            :+tweet-rate-window+
-           :get-unix-time
            ;; Phase 2
            :find-tweets-with-user-by-user-id
            :get-tweets-by-user-with-user-info))

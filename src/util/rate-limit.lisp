@@ -10,7 +10,11 @@
            :increment
            :ensure-integer
            :+rate-limit-lua-script+
-           :+rate-limit-decrement-lua-script+))
+           :+rate-limit-decrement-lua-script+
+           ;; IETF RateLimit structured headers (draft-ietf-httpapi-ratelimit-headers)
+           :format-ratelimit-header
+           :format-ratelimit-policy-header
+           :build-ratelimit-headers))
 
 (in-package :twitter-like.util.rate-limit)
 
@@ -142,3 +146,66 @@ return removed")
                              key
                              member-id)))
       (= (ensure-integer removed 0) 1))))
+
+;;; ============================================================
+;;; IETF RateLimit Structured Headers
+;;; draft-ietf-httpapi-ratelimit-headers-09/10
+;;; https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers
+;;; ============================================================
+
+(defun format-ratelimit-header (remaining reset-seconds &optional (policy-name "default"))
+  "IETF RateLimit構造化ヘッダーを生成（draft-ietf-httpapi-ratelimit-headers-09/10準拠）
+   形式: \"default\";r=50;t=30
+
+   引数:
+     remaining     - 残り回数（quota units remaining）
+     reset-seconds - リセットまでの秒数（delay-seconds）
+     policy-name   - ポリシー識別子（デフォルト: \"default\"）
+
+   戻り値: ヘッダー値の文字列
+   参考: https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers"
+  (format nil "\"~A\";r=~A;t=~A"
+          policy-name remaining reset-seconds))
+
+(defun format-ratelimit-policy-header (limit window &optional (policy-name "default"))
+  "IETF RateLimit-Policy構造化ヘッダーを生成（draft-ietf-httpapi-ratelimit-headers-09/10準拠）
+   形式: \"default\";q=100;w=60
+
+   引数:
+     limit       - レート制限上限（quota allocated）
+     window      - ウィンドウ幅（秒）
+     policy-name - ポリシー識別子（デフォルト: \"default\"）
+
+   戻り値: ヘッダー値の文字列
+   参考: https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers"
+  (format nil "\"~A\";q=~A;w=~A"
+          policy-name limit window))
+
+(defun build-ratelimit-headers (limit remaining reset-time window &optional (now nil))
+  "レート制限レスポンス用の全ヘッダーをplistで返す
+   IETF標準ヘッダー（draft-09/10準拠） + 現行X-RateLimit-*ヘッダー（後方互換）
+
+   引数:
+     limit      - レート制限上限
+     remaining  - 残り回数
+     reset-time - リセット時刻（Unix epoch秒）
+     window     - ウィンドウ幅（秒）
+     now        - 現在時刻（省略時は自動取得）
+
+   戻り値: plist形式のヘッダー
+     (:ratelimit \"\\\"default\\\";r=50;t=30\"
+      :ratelimit-policy \"\\\"default\\\";q=60;w=3600\"
+      :retry-after \"30\"
+      :x-ratelimit-limit \"60\"
+      :x-ratelimit-remaining \"50\"
+      :x-ratelimit-reset \"1704268800\")
+
+   参考: https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers"
+  (let* ((current-time (or now (get-unix-time)))
+         (reset-seconds (max 0 (- reset-time current-time))))
+    (list :ratelimit (format-ratelimit-header remaining reset-seconds)
+          :ratelimit-policy (format-ratelimit-policy-header limit window)
+          :retry-after (write-to-string reset-seconds)
+          :x-ratelimit-limit (write-to-string limit)
+          :x-ratelimit-remaining (write-to-string remaining)
+          :x-ratelimit-reset (write-to-string reset-time))))
