@@ -27,6 +27,9 @@
                                               :database-name (twitter-like.config:get-config "db-name")
                                               :username (twitter-like.config:get-config "db-user")
                                               :password (twitter-like.config:get-config "db-password")))
+                 ;; Phase 2: mito:retrieve-by-sqlの戻り値をキーワードシンボル形式に設定
+                 ;; 例: (:|id| 123 :|user_id| 456 :|content| "..." ...)
+                 (setf mito.db::*plist-row-lispify* nil)
                  (format t "✓ Database connected: ~A@~A:~A/~A~%"
                          (twitter-like.config:get-config "db-user")
                          (twitter-like.config:get-config "db-host")

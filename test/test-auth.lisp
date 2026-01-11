@@ -1,7 +1,10 @@
 (defpackage twitter-like-test.auth
   (:use :cl :rove)
-  (:import-from :dexador)
-  (:import-from :dexador.error)
+  (:import-from :twitter-like-test
+                :get-test-base-url
+                :extract-session-cookie
+                :json-post
+                :safe-get)
   (:import-from :com.inuoe.jzon
                 :parse
                 :stringify))
@@ -10,36 +13,6 @@
 
 (defun make-url (path)
   (format nil "~A~A" (twitter-like-test:get-test-base-url) path))
-
-(defun json-post (path payload &key headers)
-  "シンプルなJSON POSTヘルパー"
-  (handler-case
-      (dex:post (make-url path)
-                :headers (append '(("Content-Type" . "application/json")
-                                   ("Connection" . "close"))
-                                 headers)
-                :content (com.inuoe.jzon:stringify payload))
-    (dexador.error:http-request-failed (e)
-      (values (dexador:response-body e)
-              (dexador:response-status e)
-              (dexador:response-headers e)))))
-
-(defun safe-get (path &key headers)
-  (handler-case
-      (dex:get (make-url path)
-               :headers (append '(("Connection" . "close")) headers))
-    (dexador.error:http-request-failed (e)
-      (values (dexador:response-body e)
-              (dexador:response-status e)
-              (dexador:response-headers e)))))
-
-(defun extract-session-cookie (set-cookie-header)
-  "Set-Cookieヘッダーから送信用Cookie文字列を抽出（最初のname=valueのみ）"
-  (when set-cookie-header
-    (let ((semicolon-pos (position #\; set-cookie-header)))
-      (if semicolon-pos
-          (subseq set-cookie-header 0 semicolon-pos)
-          set-cookie-header))))
 
 (setup
   ;; テスト環境セットアップ
@@ -94,6 +67,46 @@
                                    ("x-csrf-token" . ,csrf)))
             (declare (ignore logout-body logout-headers))
             (ok (= logout-status 200) "Logout should return 200")))))))
+
+(deftest test-logout-requires-csrf
+  (testing "POST /api/auth/logout without CSRF token returns 403"
+    (let* ((username (format nil "csrf_~A" (mod (get-universal-time) 100000000)))
+           (password "this-is-a-very-secure-password"))
+      ;; ユーザー登録
+      (multiple-value-bind (body status headers)
+          (json-post "/api/auth/register"
+                     (let ((h (make-hash-table :test 'equal)))
+                       (setf (gethash "username" h) username
+                             (gethash "password" h) password)
+                       h))
+        (declare (ignore body))
+        (ok (= status 201) "Register should return 201")
+        (let* ((set-cookie (gethash "set-cookie" headers))
+               (sc-string (cond
+                            ((stringp set-cookie) set-cookie)
+                            ((and (listp set-cookie) (stringp (first set-cookie)))
+                             (first set-cookie))
+                            (t nil)))
+               (cookie-header (when sc-string
+                                (let* ((eq-pos (position #\= sc-string))
+                                       (semi-pos (position #\; sc-string :start (or eq-pos 0)))
+                                       (sid (when eq-pos
+                                              (subseq sc-string (1+ eq-pos)
+                                                      (or semi-pos (length sc-string))))))
+                                  (format nil "session_id=~A" sid)))))
+          ;; CSRFトークンなしでlogout試行
+          (handler-case
+              (dex:post (make-url "/api/auth/logout")
+                        :headers `(("cookie" . ,cookie-header)))
+            (dexador.error:http-request-failed (e)
+              (let* ((response-status (dexador:response-status e))
+                     (response-body (dexador:response-body e))
+                     (parsed (when response-body (com.inuoe.jzon:parse response-body))))
+                (ok (= response-status 403) "Should return 403 Forbidden")
+                (ok (stringp (gethash "error" parsed)) "Error message should be present")
+                ;; 重要: クライアント起因エラーなのでerror_idは含まれない
+                (ok (null (gethash "error_id" parsed))
+                    "error_id should NOT be present for client-caused CSRF errors")))))))))
 
 (deftest test-login-rate-limit
   (testing "Login rate limit returns 429 after threshold"

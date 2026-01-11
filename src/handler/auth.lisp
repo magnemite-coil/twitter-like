@@ -17,6 +17,13 @@
   (:import-from :twitter-like.util.crypto
                 :constant-time-string=
                 :mask-session-id)
+  (:import-from :twitter-like.util.request
+                :get-env
+                :parse-json-body
+                :get-session-id-from-cookie
+                :get-csrf-header
+                :get-client-ip
+                :validate-content-type)
   (:import-from :twitter-like.middleware.session
                 :create-session
                 :get-session-user-id
@@ -24,6 +31,7 @@
                 :delete-session
                 :touch-session
                 :session-idle-expired-p
+                :session-absolute-expired-p
                 :rotate-session
                 :build-session-cookie
                 :build-session-clear-cookie)
@@ -35,9 +43,21 @@
                 :register-user
                 :authenticate-user
                 :check-rate-limit
+                :check-login-rate-limit
+                :decrement-login-rate-limit
+                :check-register-rate-limit
                 :check-account-lockout
                 :record-login-failure
-                :clear-login-failures)
+                :clear-login-failures
+                ;; Rate limit constants
+                :+login-rate-limit+
+                :+login-rate-window+
+                :+register-rate-limit+
+                :+register-rate-window+)
+  (:import-from :twitter-like.util.rate-limit
+                :build-ratelimit-headers)
+  (:import-from :twitter-like.util.time
+                :get-unix-time)
   (:export :register-handler
            :login-handler
            :logout-handler
@@ -47,83 +67,8 @@
 (in-package :twitter-like.handler.auth)
 
 ;;; ============================================================
-;;; ユーティリティ関数
+;;; ハンドラー固有のユーティリティ関数
 ;;; ============================================================
-
-(defun get-env ()
-  "ningleのコンテキストからリクエスト環境を取得"
-  (lack.request:request-env (ningle:context :request)))
-
-(defun parse-json-body ()
-  "リクエストボディをJSONとしてパース"
-  (handler-case
-      (let ((env (get-env)))
-        (let* ((content-length-raw (getf env :content-length))
-               (content-length (if (stringp content-length-raw)
-                                   (parse-integer content-length-raw :junk-allowed t)
-                                   content-length-raw))
-               (body-stream (getf env :raw-body)))
-          (when (and content-length body-stream (> content-length 0))
-            (let ((body-bytes (make-array content-length :element-type '(unsigned-byte 8))))
-              (read-sequence body-bytes body-stream)
-              (let ((body-string (babel:octets-to-string body-bytes :encoding :utf-8)))
-                (com.inuoe.jzon:parse body-string))))))
-    (error (e)
-      (log-warn (format nil "Failed to parse JSON body: ~A" e))
-      nil)))
-
-(defun get-client-ip ()
-  "クライアントIPアドレスを取得（X-Forwarded-For対応）"
-  (let ((env (get-env)))
-    (or (getf env :http-x-forwarded-for)
-        (getf env :remote-addr)
-        "unknown")))
-
-(defun parse-cookie-string (cookie-string)
-  "Cookie文字列をパースしてセッションIDを抽出"
-  (when (and cookie-string (stringp cookie-string) (> (length cookie-string) 0))
-    (loop for pair in (str:split "; " cookie-string)
-          for eq-pos = (position #\= pair)
-          when eq-pos
-          do (let ((name (subseq pair 0 eq-pos))
-                   (value (subseq pair (1+ eq-pos))))
-               (when (string= name "session_id")
-                 (return value))))))
-
-(defun get-session-id-from-cookie ()
-  "CookieからセッションIDを取得
-
-   Clack/Lack標準に従い、以下の順序でCookieを探索:
-   1. :headers ハッシュテーブルの 'cookie' キー（Clack標準）
-   2. lack.request:request-cookies（Lackミドルウェア経由）"
-  (let* ((env (get-env))
-         (headers (getf env :headers))
-         ;; Clack標準: headersハッシュテーブルから小文字キーで取得
-         (raw-cookie (when (hash-table-p headers)
-                       (gethash "cookie" headers)))
-         (cookie-string (cond
-                          ((stringp raw-cookie) raw-cookie)
-                          ((and (listp raw-cookie) (stringp (first raw-cookie)))
-                           (first raw-cookie))
-                          (t raw-cookie))))
-    ;; headersから取得できた場合はパース
-    (or (parse-cookie-string cookie-string)
-        ;; フォールバック: lack.request:request-cookies を使用
-        (let* ((request (ningle:context :request))
-               (cookies (when request
-                          (handler-case
-                              (lack.request:request-cookies request)
-                            (error () nil)))))
-          (when (consp cookies)
-            (cdr (assoc "session_id" cookies :test #'string=)))))))
-
-(defun get-csrf-header ()
-  "リクエストヘッダーからCSRFトークンを取得
-   Clack標準に従い、:headersハッシュテーブルから小文字キーで取得"
-  (let* ((env (get-env))
-         (headers (getf env :headers)))
-    (when (hash-table-p headers)
-      (gethash "x-csrf-token" headers))))
 
 (defun response-with-cookie (status data cookie-value &key extra-headers)
   "Cookieを含むレスポンスを生成"
@@ -144,31 +89,48 @@
 (defun register-handler (params)
   "ユーザー登録ハンドラー"
   (declare (ignore params))
-  (let* ((client-ip (get-client-ip))
-         (body (parse-json-body)))
 
-    ;; レート制限チェック
-    (multiple-value-bind (allowed remaining)
-        (check-rate-limit :register client-ip
-                          :limit 3
-                          :window 3600)
-      (declare (ignore remaining))
+  ;; Content-Type検証（OWASP準拠 - 認証チェックより先に実施）
+  (multiple-value-bind (valid-p error-status error-message) (validate-content-type)
+    (unless valid-p
+      (return-from register-handler
+        (response-error error-status error-message))))
+
+  (let ((client-ip (get-client-ip)))
+    (multiple-value-bind (body parse-error-reason) (parse-json-body)
+
+      ;; レート制限チェック（:always モード: チェック時に自動カウント）
+    (multiple-value-bind (allowed remaining reset-time)
+        (check-register-rate-limit client-ip)
       (unless allowed
         (log-warn "Rate limit exceeded for registration"
                   :context (list :|ip| client-ip))
-        (return-from register-handler
-          (response-error 429 "Too many registration attempts. Please try again later."))))
+        ;; IETF RateLimit構造化ヘッダー + X-RateLimit-*（後方互換）
+        (let* ((now (get-unix-time))
+               (effective-reset-time (or reset-time (+ now +register-rate-window+)))
+               (base-response (response-error 429 "Too many registration attempts. Please try again later."))
+               (base-headers (second base-response))
+               (rate-headers (build-ratelimit-headers +register-rate-limit+
+                                                      (or remaining 0)
+                                                      effective-reset-time
+                                                      +register-rate-window+
+                                                      now))
+               (merged-headers (append base-headers rate-headers)))
+          (return-from register-handler
+            (list 429 merged-headers (third base-response))))))
 
     ;; リクエストボディの検証
     (unless body
       (return-from register-handler
-        (response-error 400 "Invalid request body")))
+        (if (eq parse-error-reason :too-large)
+            (response-error 413 "Request body too large")
+            (response-error 400 "Invalid request body"))))
 
     (let ((username (gethash "username" body))
           (password (gethash "password" body)))
 
       ;; ユーザー登録
-      (multiple-value-bind (user error-message)
+      (multiple-value-bind (user error-message error-type internal-detail)
           (register-user username password)
         (if user
             ;; 成功: セッション作成してログイン状態に
@@ -179,17 +141,31 @@
                         :context (list :|username| username
                                        :|user_id| user-id
                                        :|session| (mask-session-id session-id)))
-              ;; レート制限カウントを増加（成功時も）
-              (twitter-like.service.auth::increment-rate-limit :register client-ip :window 3600)
+              ;; 注: :always モードのため、check-register-rate-limit でカウント済み
               (let ((response-data (make-hash-table :test 'equal)))
                 (setf (gethash "user" response-data) (user-to-public-json user))
                 (response-with-cookie 201 response-data cookie)))
-            ;; 失敗
-            (let ((error-id (log-error "Registration failed"
-                                        :context (list :|username| username
-                                                       :|error| error-message))))
-              (twitter-like.service.auth::increment-rate-limit :register client-ip :window 3600)
-              (response-error 400 error-message :error-id error-id)))))))
+            ;; 失敗 - エラー種別に応じてステータスコードとログレベルを分類
+            ;; 注: :always モードのため、check-register-rate-limit でカウント済み
+            (case error-type
+              (:validation
+               ;; クライアント起因（バリデーションエラー）: log-warn、400、error_idなし
+               (log-warn "Registration validation failed"
+                         :context (list :|username| username
+                                        :|error| error-message))
+               (response-error 400 error-message))
+              (:internal
+               ;; サーバー起因エラー: log-error（詳細含む）、500、汎用メッセージ、error_idあり
+               (let ((error-id (log-error "Registration failed"
+                                           :context (list :|username| username
+                                                          :|error| internal-detail))))
+                 (response-error 500 "An internal error occurred" :error-id error-id)))
+              (t
+               ;; 予期しないエラー種別: 500として処理
+               (let ((error-id (log-error "Registration failed with unknown error type"
+                                           :context (list :|username| username
+                                                          :|error| error-message))))
+                 (response-error 500 "An internal error occurred" :error-id error-id))))))))))
 
 ;;; ============================================================
 ;;; POST /api/auth/login
@@ -198,14 +174,23 @@
 (defun login-handler (params)
   "ログインハンドラー"
   (declare (ignore params))
-  (let* ((client-ip (get-client-ip))
-         (body (parse-json-body))
-         (existing-session-id (get-session-id-from-cookie)))
 
-    ;; リクエストボディの検証
-    (unless body
+  ;; Content-Type検証（OWASP準拠 - 認証チェックより先に実施）
+  (multiple-value-bind (valid-p error-status error-message) (validate-content-type)
+    (unless valid-p
       (return-from login-handler
-        (response-error 400 "Invalid request body")))
+        (response-error error-status error-message))))
+
+  (let* ((client-ip (get-client-ip))
+         (existing-session-id (get-session-id-from-cookie)))
+    (multiple-value-bind (body parse-error-reason) (parse-json-body)
+
+      ;; リクエストボディの検証
+      (unless body
+        (return-from login-handler
+          (if (eq parse-error-reason :too-large)
+              (response-error 413 "Request body too large")
+              (response-error 400 "Invalid request body"))))
 
     (let ((username (gethash "username" body))
           (password (gethash "password" body)))
@@ -215,17 +200,27 @@
         (return-from login-handler
           (response-error 400 "Username is required")))
 
-      ;; IPベースレート制限チェック
-      (multiple-value-bind (allowed remaining)
-          (check-rate-limit :login client-ip)
-        (declare (ignore remaining))
+      ;; IPベースレート制限チェック（:optimistic モード: 試行時にカウント）
+      (multiple-value-bind (allowed remaining reset-time member-id)
+          (check-login-rate-limit client-ip)
         (unless allowed
           (log-warn "Rate limit exceeded for login"
                     :context (list :|ip| client-ip :|username| username))
-          (return-from login-handler
-            (response-error 429 "Too many login attempts. Please try again later."))))
+          ;; IETF RateLimit構造化ヘッダー + X-RateLimit-*（後方互換）
+          (let* ((now (get-unix-time))
+                 (effective-reset-time (or reset-time (+ now +login-rate-window+)))
+                 (base-response (response-error 429 "Too many login attempts. Please try again later."))
+                 (base-headers (second base-response))
+                 (rate-headers (build-ratelimit-headers +login-rate-limit+
+                                                        (or remaining 0)
+                                                        effective-reset-time
+                                                        +login-rate-window+
+                                                        now))
+                 (merged-headers (append base-headers rate-headers)))
+            (return-from login-handler
+              (list 429 merged-headers (third base-response)))))
 
-      ;; アカウントロックアウトチェック
+        ;; アカウントロックアウトチェック
       (multiple-value-bind (locked remaining-seconds)
           (check-account-lockout username)
         (when locked
@@ -245,6 +240,9 @@
                    ;; セッションローテーション（セッション固定攻撃対策）
                    (session-id (rotate-session existing-session-id user-id))
                    (cookie (build-session-cookie session-id)))
+              ;; :optimistic モード成功時: カウントをデクリメント
+              (when member-id
+                (decrement-login-rate-limit client-ip member-id))
               ;; ログイン失敗カウントをクリア
               (clear-login-failures username)
               (log-info "User logged in"
@@ -254,19 +252,18 @@
               (let ((response-data (make-hash-table :test 'equal)))
                 (setf (gethash "user" response-data) (user-to-public-json user))
                 (response-with-cookie 200 response-data cookie)))
-            ;; 認証失敗
+            ;; 認証失敗: :optimistic モードでは既にカウント済みなので追加カウント不要
             (progn
-              ;; レート制限カウント増加
-              (twitter-like.service.auth::increment-rate-limit :login client-ip)
               ;; ログイン失敗を記録
               (multiple-value-bind (locked count)
                   (record-login-failure username)
                 (when locked
                   (log-warn "Account locked after failed attempts"
                             :context (list :|username| username :|attempts| count))))
-              (let ((error-id (log-warn "Login failed"
-                                        :context (list :|username| username))))
-                (response-error 401 error-message :error-id error-id))))))))
+              ;; クライアント起因エラー: log-warn、error_idなし
+              (log-warn "Login failed"
+                        :context (list :|username| username))
+              (response-error 401 error-message)))))))))
 
 ;;; ============================================================
 ;;; POST /api/auth/logout
@@ -287,7 +284,11 @@
         (return-from logout-handler
           (response-error 401 "Unauthorized")))
 
-      ;; セッションのタイムアウトチェック
+      ;; セッションのタイムアウトチェック（絶対 + アイドル）
+      (when (session-absolute-expired-p session-id)
+        (delete-session session-id)
+        (return-from logout-handler
+          (response-error 401 "Session expired")))
       (when (session-idle-expired-p session-id)
         (delete-session session-id)
         (return-from logout-handler
@@ -298,11 +299,12 @@
              (stored-token (get-csrf-token session-id)))
         (unless (and submitted-token stored-token
                      (constant-time-string= submitted-token stored-token))
-          (let ((error-id (log-warn "Invalid CSRF token on logout"
-                                    :context (list :|user_id| user-id
-                                                   :|session| (mask-session-id session-id)))))
-            (return-from logout-handler
-              (response-error 403 "Invalid CSRF token" :error-id error-id)))))
+          ;; クライアント起因エラー: log-warn、error_idなし
+          (log-warn "Invalid CSRF token on logout"
+                    :context (list :|user_id| user-id
+                                   :|session| (mask-session-id session-id)))
+          (return-from logout-handler
+            (response-error 403 "Invalid CSRF token"))))
 
       ;; セッション削除
       (delete-session session-id)
@@ -326,12 +328,13 @@
 
     ;; セッションの検証
     (unless session-id
+      ;; セキュリティ: ヘッダー名のみをログ出力（Cookie/Authorization等の機密値は除外）
       (log-warn "Session cookie missing on /api/auth/me"
                 :context (let* ((hdrs (getf (get-env) :headers))
-                                (pairs (when (hash-table-p hdrs)
-                                         (loop for k being the hash-keys of hdrs
-                                               collect (cons k (gethash k hdrs))))))
-                           (list :|headers| pairs)))
+                                (header-names (when (hash-table-p hdrs)
+                                                (loop for k being the hash-keys of hdrs
+                                                      collect k))))
+                           (list :|header_names| header-names)))
       (return-from me-handler
         (response-error 401 "Unauthorized")))
 
@@ -342,7 +345,11 @@
         (return-from me-handler
           (response-error 401 "Unauthorized")))
 
-      ;; セッションのタイムアウトチェック
+      ;; セッションのタイムアウトチェック（絶対 + アイドル）
+      (when (session-absolute-expired-p session-id)
+        (delete-session session-id)
+        (return-from me-handler
+          (response-error 401 "Session expired")))
       (when (session-idle-expired-p session-id)
         (delete-session session-id)
         (return-from me-handler

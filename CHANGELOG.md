@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Tweet System Phase 2: Cursor Pagination & N+1 Resolution**
+  - Cursor-based pagination (max_id/since_id) for Twitter API v1.1 compatibility
+  - N+1 query resolution using JOIN-based user info retrieval
+  - Parameter validation with bigint range checking
+
+- **Rate Limiting Improvements**
+  - Unified rate limiting with Lua atomic operations (src/util/rate-limit.lisp)
+  - :optimistic mode for login (count on attempt, decrement on success)
+  - :always mode for registration (count on every attempt)
+  - IETF RateLimit structured headers (draft-09/10 compliant)
+    - `RateLimit: "default";r=<remaining>;t=<reset-seconds>`
+    - `RateLimit-Policy: "default";q=<quota>;w=<window>`
+    - Backward compatible X-RateLimit-* headers maintained
+
+- **Error Handling**
+  - Added handler-case to get-user-tweets-handler for unexpected errors
+
+### Changed
+
+- **Timestamp Format** (Breaking Change)
+  - All API timestamps now use UTC timezone (ISO 8601 with Z suffix)
+  - Frontend applications should parse timestamps as UTC
+
+- **Query Parameter Validation** (Breaking Change)
+  - Non-integer query parameters (max_id, since_id, count, limit, offset) now return 400 error
+  - Out-of-range bigint values return 400 error
+
+### Security
+
+- Improved login rate limiting with atomic Lua operations
+
 ## [0.2.0] - 2025-11-29
 
 ### Added

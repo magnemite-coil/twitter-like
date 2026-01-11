@@ -4,12 +4,14 @@
                 :connect
                 :disconnect
                 :redis-connection)
+  (:import-from :twitter-like.util.time
+                :get-unix-time)
   (:export :connect-redis
            :disconnect-redis
            :ensure-redis-connected
            :*redis-connection*
            ;; セッション管理機能
-           :get-unix-time
+           :get-unix-time  ; util/time.lisp から re-export（後方互換性）
            :create-session
            :get-session-user-id
            :get-csrf-token
@@ -83,10 +85,6 @@
 
 (defconstant +session-idle-timeout+ 1800
   "セッションアイドルタイムアウト: 30分（秒）")
-
-(defun get-unix-time ()
-  "Unix timestamp（1970年1月1日からの秒数）を取得"
-  (- (get-universal-time) 2208988800))
 
 (defun production-p ()
   "本番環境かどうかを判定"

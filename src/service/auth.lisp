@@ -2,14 +2,25 @@
   (:use :cl)
   (:import-from :cl-ppcre
                 :scan)
+  (:import-from :twitter-like.util.rate-limit
+                :check-and-increment
+                :decrement)
   (:export :validate-username
            :validate-password
            :register-user
            :authenticate-user
            :check-rate-limit
+           :check-login-rate-limit
+           :decrement-login-rate-limit
+           :check-register-rate-limit
            :check-account-lockout
            :record-login-failure
-           :clear-login-failures))
+           :clear-login-failures
+           ;; Rate limit constants (for handler layer IETF headers)
+           :+login-rate-limit+
+           :+login-rate-window+
+           :+register-rate-limit+
+           :+register-rate-window+))
 
 (in-package :twitter-like.service.auth)
 
@@ -85,11 +96,45 @@
         (values t (- limit current-count)))))
 
 (defun increment-rate-limit (key-type identifier &key (window +login-rate-window+))
-  "レート制限カウントを増加"
+  "レート制限カウントを増加
+   DEPRECATED: 新しいコードでは check-login-rate-limit / check-register-rate-limit を使用してください"
   (let* ((key (format nil "rate:~A:ip:~A" key-type identifier))
          (current-count-str (red:get key))
          (current-count (if current-count-str (parse-integer current-count-str :junk-allowed t) 0)))
     (red:setex key window (write-to-string (1+ current-count)))))
+
+;;; ============================================================
+;;; 新レート制限関数（Phase 2: util/rate-limit.lisp ラッパー）
+;;; ============================================================
+
+(defun check-login-rate-limit (ip-address)
+  "ログインレート制限（:optimistic モード: 試行時にカウント、成功時にデクリメント）
+   戻り値: (values allowed-p remaining reset-time member-id)
+   - allowed-p: 許可されたか
+   - remaining: 残り回数
+   - reset-time: リセット時刻（制限超過時のみ）
+   - member-id: 成功時のデクリメント用ID（decrement-login-rate-limit に渡す）"
+  (check-and-increment "login" :ip ip-address
+                       +login-rate-limit+ +login-rate-window+
+                       :increment-on :optimistic))
+
+(defun decrement-login-rate-limit (ip-address member-id)
+  "ログイン成功時にカウントをデクリメント（:optimistic モード用）
+   引数:
+     ip-address - IPアドレス
+     member-id  - check-login-rate-limit で取得した member-id
+   戻り値: t（成功）または nil（該当エントリなし）"
+  (decrement "login" :ip ip-address +login-rate-window+ member-id))
+
+(defun check-register-rate-limit (ip-address)
+  "登録レート制限（:always モード: 常にカウント）
+   戻り値: (values allowed-p remaining reset-time)
+   - allowed-p: 許可されたか
+   - remaining: 残り回数
+   - reset-time: リセット時刻（制限超過時のみ）"
+  (check-and-increment "register" :ip ip-address
+                       +register-rate-limit+ +register-rate-window+
+                       :increment-on :always))
 
 ;;; ============================================================
 ;;; アカウントロックアウト（設計書5.4参照）
@@ -142,30 +187,32 @@
 
 (defun register-user (username password)
   "ユーザーを登録
-  戻り値: (values user error-message)
-  - 成功時: (values user nil)
-  - 失敗時: (values nil error-message)"
+  戻り値: (values user error-message error-type internal-error-detail)
+  - 成功時: (values user nil nil nil)
+  - バリデーション失敗時: (values nil error-message :validation nil)
+  - 内部エラー時: (values nil generic-message :internal detail-for-logging)"
   ;; バリデーション
   (multiple-value-bind (valid-username username-error) (validate-username username)
     (unless valid-username
-      (return-from register-user (values nil username-error))))
+      (return-from register-user (values nil username-error :validation nil))))
 
   (multiple-value-bind (valid-password password-error) (validate-password password)
     (unless valid-password
-      (return-from register-user (values nil password-error))))
+      (return-from register-user (values nil password-error :validation nil))))
 
   ;; ユーザー名の重複チェック
   (when (twitter-like.model.user:find-user-by-username username)
-    (return-from register-user (values nil "Username already exists")))
+    (return-from register-user (values nil "Username already exists" :validation nil)))
 
   ;; パスワードハッシュ化とユーザー作成
   (handler-case
       (let* ((password-hash (twitter-like.util.crypto:hash-password password))
              (hash-string (ironclad:byte-array-to-hex-string password-hash))
              (user (twitter-like.model.user:create-user username hash-string)))
-        (values user nil))
+        (values user nil nil nil))
     (error (e)
-      (values nil (format nil "Registration failed: ~A" e)))))
+      ;; 内部例外: クライアントには汎用メッセージ、ログには詳細
+      (values nil "Registration failed" :internal (format nil "~A" e)))))
 
 ;;; ============================================================
 ;;; 認証
