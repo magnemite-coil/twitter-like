@@ -19,7 +19,6 @@
            :get-query-param
            ;; Phase 2: cursor pagination
            :clamp-pagination-count
-           :clamp-count
            :parse-cursor-param
            :get-query-param-cursor
            :+max-bigint+
@@ -230,11 +229,6 @@
     ((< value min) default)
     ((> value max) default)
     (t value)))
-
-(defun clamp-count (value)
-  "countを有効範囲に制限（clamp-pagination-countのエイリアス）
-   DEPRECATED: clamp-pagination-count を直接使用すること"
-  (clamp-pagination-count value))
 
 (defun parse-cursor-param (name)
   "カーソルパラメータをパースし、(values value valid-p) を返す"
