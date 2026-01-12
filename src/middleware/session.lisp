@@ -125,13 +125,28 @@
     (let ((key (format nil "session:~A" session-id)))
       (red:del key))))
 
+(defun session-exists-p (key)
+  "セッションキーがRedisに存在するかを判定
+  red:existsはライブラリバージョンにより0/1またはT/NILを返すため、
+  どちらにも対応する安全な判定を行う"
+  (let ((result (red:exists key)))
+    (cond
+      ((null result) nil)
+      ((and (integerp result) (plusp result)) t)
+      ((eq result t) t)
+      (t nil))))
+
 (defun touch-session (session-id)
   "セッションのlast_accessed_atを更新（アイドルタイムアウト用）
-  注意: TTLはリセットしない（絶対タイムアウトを維持するため）"
+  注意: TTLはリセットしない（絶対タイムアウトを維持するため）
+  存在しないセッションIDの場合はNILを返し、不完全なセッションデータを作成しない"
   (when session-id
-    (let ((key (format nil "session:~A" session-id))
-          (now (write-to-string (get-unix-time))))
-      (red:hset key "last_accessed_at" now))))
+    (let ((key (format nil "session:~A" session-id)))
+      ;; セッションが存在する場合のみ更新
+      (when (session-exists-p key)
+        (let ((now (write-to-string (get-unix-time))))
+          (red:hset key "last_accessed_at" now)
+          t)))))
 
 (defun session-idle-expired-p (session-id &optional (idle-timeout +session-idle-timeout+))
   "アイドルタイムアウトをチェック（デフォルト30分）"
