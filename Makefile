@@ -93,7 +93,7 @@ test-crypto:
 		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
-		     --eval '(rove:run :twitter-like-test.crypto)' \
+		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.crypto))' \
 		     --quit; \
 	else \
 		echo "Error: .env.test file not found"; \
@@ -110,7 +110,7 @@ test-session:
 		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
-		     --eval '(rove:run :twitter-like-test.session)' \
+		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.session))' \
 		     --quit; \
 	else \
 		echo "Error: .env.test file not found"; \
