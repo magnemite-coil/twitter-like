@@ -40,7 +40,7 @@ test-config:
 		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
-		     --eval '(rove:run :twitter-like-test.config)' \
+		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.config))' \
 		     --quit; \
 	else \
 		echo "Error: .env.test file not found"; \
@@ -56,7 +56,7 @@ test-db: test-setup
 		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
-		     --eval '(rove:run :twitter-like-test.db)' \
+		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.db))' \
 		     --quit; \
 	else \
 		echo "Error: .env.test file not found"; \
@@ -72,7 +72,7 @@ test-health: test-setup
 		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
-		     --eval '(rove:run :twitter-like-test.health)' \
+		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.health))' \
 		     --quit; \
 	else \
 		echo "Error: .env.test file not found"; \

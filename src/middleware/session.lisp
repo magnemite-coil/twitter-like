@@ -136,17 +136,35 @@
       ((eq result t) t)
       (t nil))))
 
+;; touch-session用Luaスクリプト（TOCTOU防止のため原子的に実行）
+;; EXISTS→HSETの間にセッションが削除/期限切れになった場合、
+;; TTLなしの新しいキーが作成されることを防ぐ
+(defconstant +touch-session-lua-script+
+  "local key = KEYS[1]
+local now = ARGV[1]
+-- セッションが存在しTTL > 0の場合のみ更新
+if redis.call('EXISTS', key) == 1 then
+  local ttl = redis.call('TTL', key)
+  if ttl > 0 then
+    redis.call('HSET', key, 'last_accessed_at', now)
+    return 1
+  end
+end
+return 0")
+
 (defun touch-session (session-id)
   "セッションのlast_accessed_atを更新（アイドルタイムアウト用）
   注意: TTLはリセットしない（絶対タイムアウトを維持するため）
-  存在しないセッションIDの場合はNILを返し、不完全なセッションデータを作成しない"
+  存在しないセッションIDの場合はNILを返し、不完全なセッションデータを作成しない
+  TOCTOU防止: Luaスクリプトで原子的に実行"
   (when session-id
-    (let ((key (format nil "session:~A" session-id)))
-      ;; セッションが存在する場合のみ更新
-      (when (session-exists-p key)
-        (let ((now (write-to-string (get-unix-time))))
-          (red:hset key "last_accessed_at" now)
-          t)))))
+    (let* ((key (format nil "session:~A" session-id))
+           (now (write-to-string (get-unix-time)))
+           (result (red:eval +touch-session-lua-script+ 1 key now)))
+      ;; Luaスクリプトは成功時1、失敗時0を返す
+      (and result
+           (integerp result)
+           (= result 1)))))
 
 (defun session-idle-expired-p (session-id &optional (idle-timeout +session-idle-timeout+))
   "アイドルタイムアウトをチェック（デフォルト30分）"
