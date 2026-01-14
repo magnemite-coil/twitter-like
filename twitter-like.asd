@@ -75,5 +75,10 @@
                  (:file "test-db" :depends-on ("setup"))
                  (:file "test-health" :depends-on ("setup"))
                  (:file "test-auth" :depends-on ("setup"))
-                 (:file "test-tweet" :depends-on ("setup")))))
+                 (:file "test-tweet" :depends-on ("setup"))
+                 ;; 新規追加（setupへの依存なし - 独自に初期化）
+                 ;; 理由: ユニットテストはHTTPサーバーを起動せず、
+                 ;; 対象関数のみをテストするため軽量な独自setupを使用
+                 (:file "test-crypto")
+                 (:file "test-session"))))
   :perform (test-op (op c) (symbol-call :rove :run c)))
