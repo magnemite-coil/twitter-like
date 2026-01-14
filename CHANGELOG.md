@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Error Handling**
   - Added handler-case to get-user-tweets-handler for unexpected errors
 
+- **Security Unit Tests** (test/test-crypto.lisp, test/test-session.lisp, test/test-request.lisp)
+  - Crypto utilities: PBKDF2 hashing, constant-time comparison, token generation (27 cases)
+  - Session management: Redis operations, session rotation, CSRF tokens (30 cases)
+  - Request utilities: Cookie parsing, IP extraction, DoS protection (48 cases)
+  - Total 105 security-focused test cases covering OWASP Top 10 concerns
+
 ### Changed
 
 - **Timestamp Format** (Breaking Change)
