@@ -80,5 +80,6 @@
                  ;; 理由: ユニットテストはHTTPサーバーを起動せず、
                  ;; 対象関数のみをテストするため軽量な独自setupを使用
                  (:file "test-crypto")
-                 (:file "test-session"))))
+                 (:file "test-session")
+                 (:file "test-request"))))
   :perform (test-op (op c) (symbol-call :rove :run c)))
