@@ -81,5 +81,6 @@
                  ;; 対象関数のみをテストするため軽量な独自setupを使用
                  (:file "test-crypto")
                  (:file "test-session")
-                 (:file "test-request"))))
+                 (:file "test-request")
+                 (:file "test-cors"))))
   :perform (test-op (op c) (symbol-call :rove :run c)))
