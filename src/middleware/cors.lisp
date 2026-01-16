@@ -52,11 +52,13 @@
                             :access-control-allow-methods "GET, POST, PUT, DELETE, OPTIONS"
                             :access-control-allow-headers "Content-Type, Authorization"
                             :access-control-allow-credentials "true"
-                            :access-control-max-age "86400")  ; 24時間キャッシュ
+                            :access-control-max-age "86400"  ; 24時間キャッシュ
+                            :vary "Origin")  ; キャッシュポイズニング防止
                       (list "OK"))
                 ;; 許可されていないオリジン
                 (list 403
-                      (list :content-type "text/plain")
+                      (list :content-type "text/plain"
+                            :vary "Origin")  ; キャッシュポイズニング防止
                       (list "Forbidden")))
             ;; 通常のリクエスト
             (let ((response (funcall app env)))
@@ -69,7 +71,8 @@
                          (body (third response))
                          (new-headers (append (or headers '())
                                               (list :access-control-allow-origin origin
-                                                    :access-control-allow-credentials "true"))))
+                                                    :access-control-allow-credentials "true"
+                                                    :vary "Origin"))))
                     (list status new-headers body))
                   ;; CORSヘッダー不要またはレスポンスが異常な場合はそのまま返す
                   response)))))))

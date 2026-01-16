@@ -278,7 +278,10 @@
               "Should set Access-Control-Allow-Credentials to true")
           (ok (string= (get-response-header response :access-control-max-age)
                        "86400")
-              "Should set Access-Control-Max-Age to 86400")))))
+              "Should set Access-Control-Max-Age to 86400")
+          (ok (string= (get-response-header response :vary)
+                       "Origin")
+              "Should set Vary: Origin for cache poisoning prevention")))))
 
   ;; #2: OPTIONS from disallowed origin
   (testing "returns 403 without CORS headers for disallowed origin preflight"
@@ -293,7 +296,10 @@
           (ok (equal (third response) '("Forbidden"))
               "Should return Forbidden body")
           (ok (null (get-response-header response :access-control-allow-origin))
-              "Should NOT set Access-Control-Allow-Origin")))))
+              "Should NOT set Access-Control-Allow-Origin")
+          (ok (string= (get-response-header response :vary)
+                       "Origin")
+              "Should set Vary: Origin even for 403 (cache poisoning prevention)")))))
 
   ;; #3: OPTIONS without Origin header
   (testing "returns 403 for preflight without Origin header"
@@ -306,7 +312,10 @@
           (ok (= (first response) 403)
               "Should return 403 status")
           (ok (null (get-response-header response :access-control-allow-origin))
-              "Should NOT set Access-Control-Allow-Origin"))))))
+              "Should NOT set Access-Control-Allow-Origin")
+          (ok (string= (get-response-header response :vary)
+                       "Origin")
+              "Should set Vary: Origin even for 403 without Origin header"))))))
 
 ;;; ============================================================
 ;;; test-cors-middleware-normal (Section 3.4.2: 7 test cases)
@@ -331,7 +340,10 @@
               "Should set Access-Control-Allow-Credentials")
           (ok (string= (get-response-header response :content-type)
                        "text/plain")
-              "Should preserve original Content-Type header")))))
+              "Should preserve original Content-Type header")
+          (ok (string= (get-response-header response :vary)
+                       "Origin")
+              "Should set Vary: Origin for cache poisoning prevention")))))
 
   ;; #2: Disallowed origin + normal response
   (testing "does not add CORS headers for disallowed origin"
