@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Request utilities: Cookie parsing, IP extraction, DoS protection (48 cases)
   - Total 105 security-focused test cases covering OWASP Top 10 concerns
 
+- **CORS Middleware Unit Tests** (test/test-cors.lisp)
+  - Origin validation with OWASP security tests (wildcard, null origin, subdomain spoofing)
+  - Header parsing and middleware behavior tests
+  - Total 33 test cases ensuring CORS security compliance
+
 ### Changed
 
 - **Timestamp Format** (Breaking Change)
@@ -45,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Improved login rate limiting with atomic Lua operations
+- Added Vary: Origin header to CORS responses for cache poisoning prevention (OWASP recommendation)
 
 ## [0.2.0] - 2025-11-29
 
