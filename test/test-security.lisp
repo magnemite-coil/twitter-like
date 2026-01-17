@@ -145,7 +145,7 @@
           "Should have all security headers")))
 
   ;; #8: Response with conflicting security header (CRITICAL)
-  ;; Middleware's CSP should take precedence over upstream's unsafe CSP
+  ;; Middleware's CSP must take precedence over upstream's unsafe CSP
   (testing "overrides upstream security headers with secure values"
     (let* ((unsafe-csp "default-src 'unsafe-inline' 'unsafe-eval'")
            (app (make-dummy-app `(200 (:content-security-policy ,unsafe-csp) ("OK"))))
@@ -154,12 +154,13 @@
            (response (funcall middleware env)))
       (ok (= (first response) 200)
           "Should return 200 status")
-      ;; Note: Current implementation appends headers, so middleware's CSP comes after upstream's.
-      ;; getf returns the FIRST matching key, so upstream's CSP is returned.
-      ;; This test documents current behavior. See Section 3.1 #8 for improvement notes.
-      ;; For now, we verify that security headers are present (middleware adds them).
-      (ok (has-all-security-headers-p response)
-          "Should have all security headers"))))
+      ;; CRITICAL: Middleware's CSP must take precedence over upstream's unsafe CSP
+      (ok (string= (get-response-header response :content-security-policy)
+                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+          "Middleware CSP should override upstream's unsafe CSP")
+      ;; Verify upstream's unsafe CSP is NOT present
+      (ok (not (search "unsafe-eval" (get-response-header response :content-security-policy)))
+          "Upstream's unsafe-eval should not be in final CSP"))))
 
 ;;; ============================================================
 ;;; test-security-headers-abnormal-response (Section 3.2: 6 test cases)
