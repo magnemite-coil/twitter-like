@@ -82,5 +82,6 @@
                  (:file "test-crypto")
                  (:file "test-session")
                  (:file "test-request")
-                 (:file "test-cors"))))
+                 (:file "test-cors")
+                 (:file "test-security"))))
   :perform (test-op (op c) (symbol-call :rove :run c)))
