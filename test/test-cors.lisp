@@ -5,7 +5,10 @@
   (:import-from :twitter-like.config
                 :load-config
                 :get-config
-                :*config*))
+                :*config*)
+  (:import-from :twitter-like-test.util
+                :make-dummy-app
+                :get-response-header))
 ;; Note: cl-dotenv is included in twitter-like dependencies, no need to add
 ;; Following test-request.lisp pattern, using package prefix (cl-dotenv:...) directly
 
@@ -53,18 +56,7 @@
     (list :request-method method
           :headers header-table)))
 
-(defun make-dummy-app (&optional (response '(200 (:content-type "text/plain") ("OK"))))
-  "Generate dummy app for testing
-   response: Clack response format (status headers body)"
-  (lambda (env)
-    (declare (ignore env))
-    response))
-
-(defun get-response-header (response header-key)
-  "Get header value from response
-   response: (status headers body)
-   header-key: keyword (e.g., :access-control-allow-origin)"
-  (getf (second response) header-key))
+;;; make-dummy-app and get-response-header are imported from twitter-like-test.util
 
 ;;; ============================================================
 ;;; setup/teardown

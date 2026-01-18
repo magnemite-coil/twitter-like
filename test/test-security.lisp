@@ -1,7 +1,10 @@
 (defpackage twitter-like-test.security
   (:use :cl :rove)
   (:import-from :twitter-like.middleware.security
-                :security-headers-middleware))
+                :security-headers-middleware)
+  (:import-from :twitter-like-test.util
+                :make-dummy-app
+                :get-response-header))
 
 (in-package :twitter-like-test.security)
 
@@ -26,22 +29,7 @@
 ;;; Helper Functions
 ;;; ============================================================
 
-;;; Note: Same function exists in test-cors.lisp L56-61.
-;;; Consider consolidating to test/util.lisp in the future.
-(defun make-dummy-app (&optional (response '(200 (:content-type "text/plain") ("OK"))))
-  "Generate dummy app for testing
-   response: Clack response format (status headers body)"
-  (lambda (env)
-    (declare (ignore env))
-    response))
-
-;;; Note: Same function exists in test-cors.lisp L63-67.
-;;; Consider consolidating to test/util.lisp in the future.
-(defun get-response-header (response header-key)
-  "Get header value from response
-   response: (status headers body)
-   header-key: keyword (e.g., :content-security-policy)"
-  (getf (second response) header-key))
+;;; make-dummy-app and get-response-header are imported from twitter-like-test.util
 
 (defun has-all-security-headers-p (response)
   "Check if response has all required security headers (presence check only).
@@ -156,7 +144,7 @@
           "Should return 200 status")
       ;; CRITICAL: Middleware's CSP must take precedence over upstream's unsafe CSP
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
           "Middleware CSP should override upstream's unsafe CSP")
       ;; Verify upstream's unsafe CSP is NOT present
       (ok (not (search "unsafe-eval" (get-response-header response :content-security-policy)))
@@ -168,7 +156,8 @@
 
 (deftest test-security-headers-abnormal-response
   ;; #1: Response is NIL
-  (testing "returns 500 for NIL response"
+  ;; UPDATED: Fallback 500 now includes security headers for defense consistency
+  (testing "returns 500 with security headers for NIL response"
     (let* ((app (make-dummy-app nil))
            (middleware (security-headers-middleware app))
            (env '(:request-method :get))
@@ -179,8 +168,8 @@
           "Should have text/plain Content-Type")
       (ok (equal (third response) '("Internal Server Error"))
           "Should have error message body")
-      (ok (not (has-all-security-headers-p response))
-          "Should NOT have security headers on error response")))
+      (ok (has-all-security-headers-p response)
+          "Should have security headers on fallback 500 response for defense consistency")))
 
   ;; #2: Response is not a list (string)
   (testing "returns 500 for string response"
@@ -252,7 +241,7 @@
     ;; #1: Content-Security-Policy
     (testing "sets correct Content-Security-Policy value"
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
           "CSP should match expected value"))
 
     ;; #2: Strict-Transport-Security
@@ -314,7 +303,7 @@
           "Should preserve original Content-Type")
       ;; Verify all 6 security headers are present with correct values
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
           "Should have correct CSP")
       (ok (string= (get-response-header response :strict-transport-security)
                    "max-age=63072000; includeSubDomains; preload")
@@ -331,3 +320,79 @@
       (ok (string= (get-response-header response :permissions-policy)
                    "geolocation=(), microphone=(), camera=()")
           "Should have correct Permissions-Policy"))))
+
+;;; ============================================================
+;;; test-security-headers-string-key-filtering (Section 3.5: 2 test cases)
+;;; ============================================================
+;;; Tests for header key normalization (string/keyword handling)
+
+(deftest test-security-headers-string-key-filtering
+  ;; #1: String key security headers should be filtered
+  ;; Note: This test uses plist with string keys which is unusual for Clack
+  ;; but tests defensive programming for edge cases
+  (testing "filters security headers with string keys"
+    (let* ((app (make-dummy-app '(200 ("content-security-policy" "unsafe-value"
+                                       :content-type "text/plain") ("OK"))))
+           (middleware (security-headers-middleware app))
+           (env '(:request-method :get))
+           (response (funcall middleware env)))
+      (ok (= (first response) 200)
+          "Should return 200 status")
+      ;; Middleware CSP should override string-keyed upstream CSP
+      (ok (string= (get-response-header response :content-security-policy)
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+          "Should override string-keyed CSP with middleware CSP")
+      (ok (not (search "unsafe-value" (or (get-response-header response :content-security-policy) "")))
+          "Upstream string-keyed unsafe CSP should not be present")))
+
+  ;; #2: Mixed string/keyword headers should both be normalized
+  (testing "handles mixed string and keyword security headers"
+    (let* ((app (make-dummy-app '(200 ("x-frame-options" "SAMEORIGIN"
+                                       :strict-transport-security "max-age=0"
+                                       :content-type "text/html") ("<html></html>"))))
+           (middleware (security-headers-middleware app))
+           (env '(:request-method :get))
+           (response (funcall middleware env)))
+      (ok (= (first response) 200)
+          "Should return 200 status")
+      ;; Both string-keyed and keyword-keyed security headers should be overridden
+      (ok (string= (get-response-header response :x-frame-options) "DENY")
+          "Should override string-keyed X-Frame-Options")
+      (ok (string= (get-response-header response :strict-transport-security)
+                   "max-age=63072000; includeSubDomains; preload")
+          "Should override keyword-keyed HSTS")
+      (ok (string= (get-response-header response :content-type) "text/html")
+          "Should preserve non-security headers"))))
+
+;;; ============================================================
+;;; test-security-headers-fallback-500 (Section 3.6: 2 test cases)
+;;; ============================================================
+;;; Tests for security headers on fallback 500 responses
+
+(deftest test-security-headers-fallback-500
+  ;; #1: Fallback 500 should have all security headers
+  (testing "fallback 500 includes all security headers"
+    (let* ((app (make-dummy-app nil))
+           (middleware (security-headers-middleware app))
+           (env '(:request-method :get))
+           (response (funcall middleware env)))
+      (ok (= (first response) 500)
+          "Should return 500 status")
+      (ok (has-all-security-headers-p response)
+          "Fallback 500 should have all security headers")
+      (ok (string= (get-response-header response :content-security-policy)
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+          "Fallback 500 should have correct CSP value")))
+
+  ;; #2: Fallback 500 for malformed response should have security headers
+  (testing "fallback 500 for malformed response includes security headers"
+    (let* ((app (make-dummy-app '(200)))  ; malformed: only 1 element
+           (middleware (security-headers-middleware app))
+           (env '(:request-method :get))
+           (response (funcall middleware env)))
+      (ok (= (first response) 500)
+          "Should return 500 status for malformed response")
+      (ok (has-all-security-headers-p response)
+          "Fallback 500 for malformed response should have security headers")
+      (ok (string= (get-response-header response :x-frame-options) "DENY")
+          "Fallback 500 should have X-Frame-Options: DENY"))))

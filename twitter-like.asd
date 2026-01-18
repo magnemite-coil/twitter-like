@@ -82,6 +82,8 @@
                  (:file "test-crypto")
                  (:file "test-session")
                  (:file "test-request")
-                 (:file "test-cors")
-                 (:file "test-security"))))
+                 ;; ミドルウェアユニットテスト用共通ユーティリティ
+                 (:file "util")
+                 (:file "test-cors" :depends-on ("util"))
+                 (:file "test-security" :depends-on ("util")))))
   :perform (test-op (op c) (symbol-call :rove :run c)))
