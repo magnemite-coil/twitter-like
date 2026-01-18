@@ -25,7 +25,7 @@
                                          unless (member key security-keys)
                                          append (list key value)))
                  (new-headers (append filtered-headers
-                                      (list :content-security-policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+                                      (list :content-security-policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
                                             :strict-transport-security "max-age=63072000; includeSubDomains; preload"
                                             :x-content-type-options "nosniff"
                                             :x-frame-options "DENY"

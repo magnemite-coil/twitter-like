@@ -156,7 +156,7 @@
           "Should return 200 status")
       ;; CRITICAL: Middleware's CSP must take precedence over upstream's unsafe CSP
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
           "Middleware CSP should override upstream's unsafe CSP")
       ;; Verify upstream's unsafe CSP is NOT present
       (ok (not (search "unsafe-eval" (get-response-header response :content-security-policy)))
@@ -252,7 +252,7 @@
     ;; #1: Content-Security-Policy
     (testing "sets correct Content-Security-Policy value"
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
           "CSP should match expected value"))
 
     ;; #2: Strict-Transport-Security
@@ -314,7 +314,7 @@
           "Should preserve original Content-Type")
       ;; Verify all 6 security headers are present with correct values
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+                   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
           "Should have correct CSP")
       (ok (string= (get-response-header response :strict-transport-security)
                    "max-age=63072000; includeSubDomains; preload")
