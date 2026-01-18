@@ -51,9 +51,11 @@
                  (filtered-headers (loop for (key value) on (or headers '()) by #'cddr
                                          unless (security-header-key-p key)
                                          append (list key value)))
-                 (new-headers (append filtered-headers *security-headers*)))
+                 ;; copy-list: 防御的プログラミング - appendの最後の引数は共有されるため、
+                ;; 後続でヘッダーplistが破壊的に更新された場合のグローバル汚染を防止
+                (new-headers (append filtered-headers (copy-list *security-headers*))))
             (list status new-headers body))
           ;; 異常なレスポンスの場合は500エラーを返す（セキュリティヘッダー付与）
           (list 500
-                (append (list :content-type "text/plain") *security-headers*)
+                (append (list :content-type "text/plain") (copy-list *security-headers*))
                 (list "Internal Server Error"))))))
