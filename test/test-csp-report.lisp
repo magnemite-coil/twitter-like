@@ -3,7 +3,8 @@
   (:import-from :twitter-like.handler.csp-report
                 :+max-csp-report-size+
                 :read-body-safely
-                :extract-csp-report-fields))
+                :extract-csp-report-fields
+                :process-csp-report))
 
 (in-package :twitter-like-test.csp-report)
 
@@ -201,3 +202,142 @@
             "Should return plist for empty csp-report")
         (ok (null (getf fields :|document-uri|))
             "All fields should be NIL")))))
+
+;;; ============================================================
+;;; test-process-csp-report (Section 4: Handler Integration Tests)
+;;; ============================================================
+;;;
+;;; These tests verify the process-csp-report function which contains
+;;; the core logic of csp-report-handler. Testing this function directly
+;;; allows us to test without mocking ningle:context.
+;;;
+;;; Design reference: Section 20.3.1 / Section 21.2
+
+(defun make-valid-csp-report-json ()
+  "Create a valid CSP report JSON string for testing."
+  "{\"csp-report\":{\"document-uri\":\"https://example.com/page\",\"violated-directive\":\"script-src 'self'\",\"blocked-uri\":\"https://evil.com/script.js\"}}")
+
+(deftest test-process-csp-report
+  ;; #1: Valid CSP report with application/csp-report Content-Type
+  ;; Design: Section 20.3.1 Test Case #1
+  (testing "processes valid CSP report with application/csp-report Content-Type"
+    (let* ((body-string (make-valid-csp-report-json))
+           (env (make-mock-env :content-type "application/csp-report"
+                               :content-length (length body-string)
+                               :body-string body-string))
+           (result (process-csp-report env)))
+      (ok (= (getf result :status) 204)
+          "Should return 204 status")
+      (ok (getf result :processed)
+          "Should mark as processed")
+      (ok (getf result :logged)
+          "Should mark as logged (valid CSP report)")
+      (ok (null (getf result :error))
+          "Should have no error")))
+
+  ;; #2: Valid CSP report with application/json Content-Type
+  ;; Design: Section 20.3.1 Test Case #2
+  (testing "processes valid CSP report with application/json Content-Type"
+    (let* ((body-string (make-valid-csp-report-json))
+           (env (make-mock-env :content-type "application/json"
+                               :content-length (length body-string)
+                               :body-string body-string))
+           (result (process-csp-report env)))
+      (ok (= (getf result :status) 204)
+          "Should return 204 status")
+      (ok (getf result :processed)
+          "Should mark as processed")
+      (ok (getf result :logged)
+          "Should mark as logged (valid CSP report)")))
+
+  ;; #3: Request without valid Content-Type
+  ;; Design: Section 20.3.1 Test Case #3
+  (testing "silently accepts request without valid Content-Type"
+    (let* ((body-string (make-valid-csp-report-json))
+           (env (make-mock-env :content-type "text/plain"
+                               :content-length (length body-string)
+                               :body-string body-string))
+           (result (process-csp-report env)))
+      (ok (= (getf result :status) 204)
+          "Should return 204 status")
+      (ok (not (getf result :processed))
+          "Should NOT process invalid Content-Type")
+      (ok (not (getf result :logged))
+          "Should NOT log for invalid Content-Type")))
+
+  ;; #4: Empty/NIL Content-Type
+  ;; Design: Section 20.3.1 Test Case #4
+  (testing "silently accepts request with NIL Content-Type"
+    (let* ((body-string (make-valid-csp-report-json))
+           (env (make-mock-env :content-type nil
+                               :content-length (length body-string)
+                               :body-string body-string))
+           (result (process-csp-report env)))
+      (ok (= (getf result :status) 204)
+          "Should return 204 status")
+      (ok (not (getf result :processed))
+          "Should NOT process NIL Content-Type")))
+
+  ;; #5: Content-Type with charset parameter
+  (testing "accepts Content-Type with charset parameter"
+    (let* ((body-string (make-valid-csp-report-json))
+           (env (make-mock-env :content-type "application/csp-report; charset=utf-8"
+                               :content-length (length body-string)
+                               :body-string body-string))
+           (result (process-csp-report env)))
+      (ok (= (getf result :status) 204)
+          "Should return 204 status")
+      (ok (getf result :processed)
+          "Should process Content-Type with charset")
+      (ok (getf result :logged)
+          "Should log valid report")))
+
+  ;; #6: Malformed JSON in body
+  ;; Design: Section 20.3.1 Test Case #7
+  (testing "handles malformed JSON gracefully"
+    (let* ((body-string "{invalid json")
+           (env (make-mock-env :content-type "application/csp-report"
+                               :content-length (length body-string)
+                               :body-string body-string))
+           (result (process-csp-report env)))
+      (ok (= (getf result :status) 204)
+          "Should return 204 status even for malformed JSON")
+      (ok (getf result :processed)
+          "Should mark as processed (attempted)")
+      (ok (not (getf result :logged))
+          "Should NOT log malformed JSON (no valid fields)")))
+
+  ;; #7: Valid JSON but missing csp-report key
+  ;; Design: Section 20.3.1 Test Case #8
+  (testing "handles JSON without csp-report key"
+    (let* ((body-string "{\"other-key\": \"value\"}")
+           (env (make-mock-env :content-type "application/csp-report"
+                               :content-length (length body-string)
+                               :body-string body-string))
+           (result (process-csp-report env)))
+      (ok (= (getf result :status) 204)
+          "Should return 204 status")
+      (ok (getf result :processed)
+          "Should mark as processed")
+      (ok (not (getf result :logged))
+          "Should NOT log (no csp-report key)")))
+
+  ;; #8: Empty body
+  (testing "handles empty body"
+    (let* ((env (make-mock-env :content-type "application/csp-report"
+                               :content-length 0
+                               :body-string ""))
+           (result (process-csp-report env)))
+      (ok (= (getf result :status) 204)
+          "Should return 204 status")
+      (ok (not (getf result :processed))
+          "Should NOT process empty body")))
+
+  ;; #9: No body at all
+  (testing "handles request with no body"
+    (let* ((env (list :content-type "application/csp-report"))
+           (result (process-csp-report env)))
+      (ok (= (getf result :status) 204)
+          "Should return 204 status")
+      (ok (not (getf result :processed))
+          "Should NOT process missing body"))))

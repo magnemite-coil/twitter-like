@@ -6,7 +6,8 @@
            ;; Exported for unit testing
            :+max-csp-report-size+
            :read-body-safely
-           :extract-csp-report-fields))
+           :extract-csp-report-fields
+           :process-csp-report))
 
 (in-package :twitter-like.handler.csp-report)
 
@@ -69,6 +70,51 @@
          :|referrer| (gethash "referrer" csp-report)
          :|status-code| (gethash "status-code" csp-report))))))
 
+(defun process-csp-report (env)
+  "Process CSP violation report from request environment.
+   This is the core logic extracted for testability.
+
+   Args:
+     env: Clack request environment plist
+
+   Returns:
+     A plist with keys:
+       :status - HTTP status code (always 204)
+       :processed - T if report was processed, NIL otherwise
+       :logged - T if violation was logged, NIL otherwise
+       :error - Error message if an error occurred, NIL otherwise"
+  (handler-case
+      (let ((content-type (getf env :content-type)))
+        ;; Validate Content-Type
+        (unless (and content-type
+                     (or (search "application/csp-report" content-type)
+                         (search "application/json" content-type)))
+          ;; Invalid Content-Type, silently accept but don't process
+          (return-from process-csp-report
+            (list :status 204 :processed nil :logged nil :error nil)))
+
+        ;; Parse and log the report
+        (let ((body-string (read-body-safely env +max-csp-report-size+)))
+          (if body-string
+              (let* ((report (handler-case
+                                 (com.inuoe.jzon:parse body-string)
+                               (error () nil)))
+                     (fields (extract-csp-report-fields report)))
+                (if fields
+                    (progn
+                      ;; Log as warning (security event)
+                      (log-warn "CSP violation detected" :context fields)
+                      (list :status 204 :processed t :logged t :error nil))
+                    ;; JSON parsed but no valid csp-report fields
+                    (list :status 204 :processed t :logged nil :error nil)))
+              ;; No body or body read failed
+              (list :status 204 :processed nil :logged nil :error nil))))
+    (error (e)
+      ;; Log error but still return 204 to avoid information leakage
+      (let ((error-msg (princ-to-string e)))
+        (log-warn "CSP report processing error" :context (list :error error-msg))
+        (list :status 204 :processed nil :logged nil :error error-msg)))))
+
 (defun csp-report-handler (params)
   "Handle CSP violation reports from browsers.
 
@@ -78,36 +124,9 @@
    Note: This endpoint intentionally returns minimal response to avoid
    being used for information gathering by attackers."
   (declare (ignore params))
-  (handler-case
-      (let* ((env (get-env))
-             (content-type (getf env :content-type)))
-        ;; Validate Content-Type
-        (unless (and content-type
-                     (or (search "application/csp-report" content-type)
-                         (search "application/json" content-type)))
-          ;; Invalid Content-Type, silently accept but don't process
-          (return-from csp-report-handler
-            (list 204 '(:content-type "text/plain") '(""))))
-
-        ;; Parse and log the report
-        (let ((body-string (read-body-safely env +max-csp-report-size+)))
-          (when body-string
-            (let* ((report (handler-case
-                               (com.inuoe.jzon:parse body-string)
-                             (error () nil)))
-                   (fields (extract-csp-report-fields report)))
-              (when fields
-                ;; Log as warning (security event)
-                (apply #'log-warn
-                       "CSP violation detected"
-                       fields)))))
-
-        ;; Return 204 No Content (standard response for report endpoints)
-        (list 204 '(:content-type "text/plain") '("")))
-    (error (e)
-      ;; Log error but still return 204 to avoid information leakage
-      (log-warn "CSP report processing error" :error (princ-to-string e))
-      (list 204 '(:content-type "text/plain") '("")))))
+  (process-csp-report (get-env))
+  ;; Always return 204 No Content
+  (list 204 '(:content-type "text/plain") '("")))
 
 (defun register-csp-report-routes (app)
   "Register CSP report route to the application.
