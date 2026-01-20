@@ -58,7 +58,8 @@
                   :components
                   ((:file "health")
                    (:file "auth")
-                   (:file "tweet")))                           ; ツイートハンドラー
+                   (:file "tweet")
+                   (:file "csp-report")))                           ; ツイートハンドラー
                  (:file "web" :depends-on ("config" "util" "middleware" "handler"))  ; handlerに依存
                  (:file "main" :depends-on ("config" "db" "web" "handler" "middleware" "util" "model" "service")))))
   :description "2012年頃のTwitterをリバースエンジニアリングするプロジェクト"

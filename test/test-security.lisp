@@ -1,7 +1,9 @@
 (defpackage twitter-like-test.security
   (:use :cl :rove)
   (:import-from :twitter-like.middleware.security
-                :security-headers-middleware)
+                :security-headers-middleware
+                :build-security-headers
+                :production-environment-p)
   (:import-from :twitter-like-test.util
                 :make-dummy-app
                 :get-response-header))
@@ -22,6 +24,11 @@
 ;;; See test/test-session.lisp L30-74 for details.
 ;;;
 ;;; This test follows test-cors.lisp and test-crypto.lisp pattern.
+;;;
+;;; NOTE: Tests run in "test" environment (APP_ENV=test), which means:
+;;; - HSTS header is NOT included (development/test mode)
+;;; - All other security headers ARE included
+;;; Environment-specific header tests are in test-security-headers-environment
 
 ;;; setup/teardown不要（純粋関数のテスト）
 
@@ -31,22 +38,27 @@
 
 ;;; make-dummy-app and get-response-header are imported from twitter-like-test.util
 
-(defun has-all-security-headers-p (response)
-  "Check if response has all required security headers (presence check only).
-   This function verifies that all security headers EXIST in the response.
-   It does NOT verify the correctness of header values.
-   Value verification is performed separately in test-security-headers-values."
+(defun has-base-security-headers-p (response)
+  "Check if response has base security headers (excluding HSTS).
+   Used for development/test environment where HSTS is disabled."
   (let ((headers (second response)))
     (and (getf headers :content-security-policy)
-         (getf headers :strict-transport-security)
          (getf headers :x-content-type-options)
          (getf headers :x-frame-options)
          (getf headers :referrer-policy)
          (getf headers :permissions-policy))))
 
+(defun has-all-security-headers-p (response)
+  "Check if response has all required security headers including HSTS.
+   Used for production environment tests."
+  (let ((headers (second response)))
+    (and (has-base-security-headers-p response)
+         (getf headers :strict-transport-security))))
+
 ;;; ============================================================
 ;;; test-security-headers-normal-response (Section 3.1: 8 test cases)
 ;;; ============================================================
+;;; Note: These tests run in test environment, so HSTS is excluded
 
 (deftest test-security-headers-normal-response
   ;; #1: Standard 200 response
@@ -57,8 +69,8 @@
            (response (funcall middleware env)))
       (ok (= (first response) 200)
           "Should return 200 status")
-      (ok (has-all-security-headers-p response)
-          "Should have all security headers")
+      (ok (has-base-security-headers-p response)
+          "Should have base security headers (HSTS excluded in test env)")
       (ok (string= (get-response-header response :content-type) "text/plain")
           "Should preserve original Content-Type header")))
 
@@ -74,8 +86,8 @@
           "Should preserve Content-Type header")
       (ok (string= (get-response-header response :x-custom) "value")
           "Should preserve custom header")
-      (ok (has-all-security-headers-p response)
-          "Should have all security headers")))
+      (ok (has-base-security-headers-p response)
+          "Should have base security headers")))
 
   ;; #3: Response with empty headers
   (testing "adds security headers to response with empty headers"
@@ -85,8 +97,8 @@
            (response (funcall middleware env)))
       (ok (= (first response) 200)
           "Should return 200 status")
-      (ok (has-all-security-headers-p response)
-          "Should have all security headers")))
+      (ok (has-base-security-headers-p response)
+          "Should have base security headers")))
 
   ;; #4: Response with NIL headers
   (testing "adds security headers to response with NIL headers"
@@ -96,8 +108,8 @@
            (response (funcall middleware env)))
       (ok (= (first response) 200)
           "Should return 200 status")
-      (ok (has-all-security-headers-p response)
-          "Should have all security headers")))
+      (ok (has-base-security-headers-p response)
+          "Should have base security headers")))
 
   ;; #5: 404 error response
   (testing "adds security headers to 404 error response"
@@ -107,8 +119,8 @@
            (response (funcall middleware env)))
       (ok (= (first response) 404)
           "Should return 404 status")
-      (ok (has-all-security-headers-p response)
-          "Should have all security headers on error response")))
+      (ok (has-base-security-headers-p response)
+          "Should have base security headers on error response")))
 
   ;; #6: 500 error response from app
   (testing "adds security headers to 500 error response from app"
@@ -118,8 +130,8 @@
            (response (funcall middleware env)))
       (ok (= (first response) 500)
           "Should return 500 status")
-      (ok (has-all-security-headers-p response)
-          "Should have all security headers on 500 error response")))
+      (ok (has-base-security-headers-p response)
+          "Should have base security headers on 500 error response")))
 
   ;; #7: Response with empty body
   (testing "adds security headers to response with empty body"
@@ -129,8 +141,8 @@
            (response (funcall middleware env)))
       (ok (= (first response) 200)
           "Should return 200 status")
-      (ok (has-all-security-headers-p response)
-          "Should have all security headers")))
+      (ok (has-base-security-headers-p response)
+          "Should have base security headers")))
 
   ;; #8: Response with conflicting security header (CRITICAL)
   ;; Middleware's CSP must take precedence over upstream's unsafe CSP
@@ -144,7 +156,7 @@
           "Should return 200 status")
       ;; CRITICAL: Middleware's CSP must take precedence over upstream's unsafe CSP
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /api/csp-report")
           "Middleware CSP should override upstream's unsafe CSP")
       ;; Verify upstream's unsafe CSP is NOT present
       (ok (not (search "unsafe-eval" (get-response-header response :content-security-policy)))
@@ -168,7 +180,7 @@
           "Should have text/plain Content-Type")
       (ok (equal (third response) '("Internal Server Error"))
           "Should have error message body")
-      (ok (has-all-security-headers-p response)
+      (ok (has-base-security-headers-p response)
           "Should have security headers on fallback 500 response for defense consistency")))
 
   ;; #2: Response is not a list (string)
@@ -231,6 +243,7 @@
 ;;; ============================================================
 ;;; test-security-headers-values (Section 3.3: 6 test cases)
 ;;; ============================================================
+;;; Note: HSTS test checks for absence in test environment
 
 (deftest test-security-headers-values
   (let* ((app (make-dummy-app '(200 (:content-type "text/plain") ("OK"))))
@@ -241,14 +254,13 @@
     ;; #1: Content-Security-Policy
     (testing "sets correct Content-Security-Policy value"
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /api/csp-report")
           "CSP should match expected value"))
 
-    ;; #2: Strict-Transport-Security
-    (testing "sets correct Strict-Transport-Security value"
-      (ok (string= (get-response-header response :strict-transport-security)
-                   "max-age=63072000; includeSubDomains; preload")
-          "HSTS should be set for 2 years with preload"))
+    ;; #2: Strict-Transport-Security (environment-dependent)
+    (testing "HSTS is excluded in development/test environment"
+      (ok (null (get-response-header response :strict-transport-security))
+          "HSTS should NOT be set in test environment (allows HTTP development)"))
 
     ;; #3: X-Content-Type-Options
     (testing "sets correct X-Content-Type-Options value"
@@ -271,7 +283,7 @@
     ;; #6: Permissions-Policy
     (testing "sets correct Permissions-Policy value"
       (ok (string= (get-response-header response :permissions-policy)
-                   "geolocation=(), microphone=(), camera=()")
+                   "geolocation=(), microphone=(), camera=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=()")
           "Should disable sensitive browser features"))))
 
 ;;; ============================================================
@@ -292,8 +304,8 @@
       (ok (string= (get-response-header response :x-request-id) "12345")
           "Should preserve X-Request-Id header")))
 
-  ;; #2: Security headers present with correct values
-  (testing "adds all security headers with correct values alongside original headers"
+  ;; #2: Security headers present with correct values (test environment)
+  (testing "adds base security headers with correct values alongside original headers"
     (let* ((app (make-dummy-app '(200 (:content-type "text/html") ("<html></html>"))))
            (middleware (security-headers-middleware app))
            (env '(:request-method :get))
@@ -301,13 +313,13 @@
       ;; Verify original header is preserved
       (ok (string= (get-response-header response :content-type) "text/html")
           "Should preserve original Content-Type")
-      ;; Verify all 6 security headers are present with correct values
+      ;; Verify base security headers are present with correct values
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /api/csp-report")
           "Should have correct CSP")
-      (ok (string= (get-response-header response :strict-transport-security)
-                   "max-age=63072000; includeSubDomains; preload")
-          "Should have correct HSTS")
+      ;; HSTS should NOT be present in test environment
+      (ok (null (get-response-header response :strict-transport-security))
+          "HSTS should NOT be set in test environment")
       (ok (string= (get-response-header response :x-content-type-options)
                    "nosniff")
           "Should have correct X-Content-Type-Options")
@@ -318,7 +330,7 @@
                    "strict-origin-when-cross-origin")
           "Should have correct Referrer-Policy")
       (ok (string= (get-response-header response :permissions-policy)
-                   "geolocation=(), microphone=(), camera=()")
+                   "geolocation=(), microphone=(), camera=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=()")
           "Should have correct Permissions-Policy"))))
 
 ;;; ============================================================
@@ -340,12 +352,13 @@
           "Should return 200 status")
       ;; Middleware CSP should override string-keyed upstream CSP
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /api/csp-report")
           "Should override string-keyed CSP with middleware CSP")
       (ok (not (search "unsafe-value" (or (get-response-header response :content-security-policy) "")))
           "Upstream string-keyed unsafe CSP should not be present")))
 
   ;; #2: Mixed string/keyword headers should both be normalized
+  ;; Note: In test environment, HSTS is not set regardless of upstream value
   (testing "handles mixed string and keyword security headers"
     (let* ((app (make-dummy-app '(200 ("x-frame-options" "SAMEORIGIN"
                                        :strict-transport-security "max-age=0"
@@ -355,12 +368,12 @@
            (response (funcall middleware env)))
       (ok (= (first response) 200)
           "Should return 200 status")
-      ;; Both string-keyed and keyword-keyed security headers should be overridden
+      ;; String-keyed X-Frame-Options should be overridden
       (ok (string= (get-response-header response :x-frame-options) "DENY")
           "Should override string-keyed X-Frame-Options")
-      (ok (string= (get-response-header response :strict-transport-security)
-                   "max-age=63072000; includeSubDomains; preload")
-          "Should override keyword-keyed HSTS")
+      ;; HSTS should be filtered out AND not added back (test environment)
+      (ok (null (get-response-header response :strict-transport-security))
+          "HSTS should NOT be set in test environment (upstream filtered, not re-added)")
       (ok (string= (get-response-header response :content-type) "text/html")
           "Should preserve non-security headers"))))
 
@@ -370,18 +383,18 @@
 ;;; Tests for security headers on fallback 500 responses
 
 (deftest test-security-headers-fallback-500
-  ;; #1: Fallback 500 should have all security headers
-  (testing "fallback 500 includes all security headers"
+  ;; #1: Fallback 500 should have base security headers
+  (testing "fallback 500 includes base security headers"
     (let* ((app (make-dummy-app nil))
            (middleware (security-headers-middleware app))
            (env '(:request-method :get))
            (response (funcall middleware env)))
       (ok (= (first response) 500)
           "Should return 500 status")
-      (ok (has-all-security-headers-p response)
-          "Fallback 500 should have all security headers")
+      (ok (has-base-security-headers-p response)
+          "Fallback 500 should have base security headers")
       (ok (string= (get-response-header response :content-security-policy)
-                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+                   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /api/csp-report")
           "Fallback 500 should have correct CSP value")))
 
   ;; #2: Fallback 500 for malformed response should have security headers
@@ -392,7 +405,36 @@
            (response (funcall middleware env)))
       (ok (= (first response) 500)
           "Should return 500 status for malformed response")
-      (ok (has-all-security-headers-p response)
+      (ok (has-base-security-headers-p response)
           "Fallback 500 for malformed response should have security headers")
       (ok (string= (get-response-header response :x-frame-options) "DENY")
           "Fallback 500 should have X-Frame-Options: DENY"))))
+
+;;; ============================================================
+;;; test-security-headers-environment (Section 3.7: Environment tests)
+;;; ============================================================
+;;; Tests for environment-specific header configuration
+
+(deftest test-security-headers-environment
+  ;; #1: Test environment detection
+  (testing "detects non-production environment correctly"
+    (ok (not (production-environment-p))
+        "Test environment should NOT be detected as production"))
+
+  ;; #2: Build security headers excludes HSTS in test environment
+  (testing "build-security-headers excludes HSTS in test environment"
+    (let ((headers (build-security-headers)))
+      (ok (getf headers :content-security-policy)
+          "Should have CSP in built headers")
+      (ok (getf headers :x-frame-options)
+          "Should have X-Frame-Options in built headers")
+      (ok (getf headers :permissions-policy)
+          "Should have Permissions-Policy in built headers")
+      (ok (null (getf headers :strict-transport-security))
+          "Should NOT have HSTS in test environment")))
+
+  ;; #3: Verify base headers are complete
+  (testing "base security headers include all non-HSTS headers"
+    (let ((headers (build-security-headers)))
+      (ok (= 5 (/ (length headers) 2))
+          "Should have exactly 5 base security headers (10 plist elements)"))))
