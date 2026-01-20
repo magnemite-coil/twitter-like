@@ -86,5 +86,7 @@
                  ;; ミドルウェアユニットテスト用共通ユーティリティ
                  (:file "util")
                  (:file "test-cors" :depends-on ("util"))
-                 (:file "test-security" :depends-on ("util")))))
+                 (:file "test-security" :depends-on ("util"))
+                 ;; ハンドラーユニットテスト
+                 (:file "test-csp-report"))))
   :perform (test-op (op c) (symbol-call :rove :run c)))

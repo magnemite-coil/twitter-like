@@ -2,7 +2,11 @@
   (:use :cl)
   (:import-from :twitter-like.util.logger
                 :log-warn)
-  (:export :register-csp-report-routes))
+  (:export :register-csp-report-routes
+           ;; Exported for unit testing
+           :+max-csp-report-size+
+           :read-body-safely
+           :extract-csp-report-fields))
 
 (in-package :twitter-like.handler.csp-report)
 

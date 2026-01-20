@@ -1,4 +1,4 @@
-.PHONY: test test-config test-db test-health test-setup test-teardown test-clean test-crypto test-session test-request test-cors test-security
+.PHONY: test test-config test-db test-health test-setup test-teardown test-clean test-crypto test-session test-request test-cors test-security test-csp-report
 
 CACHE_DIR := $(PWD)/var/cache
 QL_LOCAL_PROJECTS := $(PWD)/vendor
@@ -162,6 +162,23 @@ test-security:
 		     --eval '(cl-dotenv:load-env ".env.test")' \
 		     --eval '(ql:quickload :twitter-like/tests)' \
 		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.security))' \
+		     --quit; \
+	else \
+		echo "Error: .env.test file not found"; \
+		exit 1; \
+	fi
+
+# CSPレポートハンドラーテスト（Redis/DB不要）
+test-csp-report:
+	@echo "Running CSP report handler unit tests..."
+	@if [ -f .env.test ]; then \
+		mkdir -p $(CACHE_DIR) $(QL_LOCAL_PROJECTS) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) QL_LOCAL_PROJECTS=$(QL_LOCAL_PROJECTS) sbcl \
+		     --eval '(ql:quickload :cl-dotenv)' \
+		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
+		     --eval '(cl-dotenv:load-env ".env.test")' \
+		     --eval '(ql:quickload :twitter-like/tests)' \
+		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.csp-report))' \
 		     --quit; \
 	else \
 		echo "Error: .env.test file not found"; \
