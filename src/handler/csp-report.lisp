@@ -2,6 +2,8 @@
   (:use :cl)
   (:import-from :twitter-like.util.logger
                 :log-warn)
+  (:import-from :twitter-like.util.request
+                :read-stream-with-limit)
   (:export :register-csp-report-routes
            ;; Exported for unit testing
            :+max-csp-report-size+
@@ -41,20 +43,35 @@
   (lack.request:request-env (ningle:context :request)))
 
 (defun read-body-safely (env max-size)
-  "ストリームからボディを安全に読み取る"
+  "ストリームからボディを安全に読み取る（チャンク転送対応）
+   Content-Length がある場合: サイズチェック後に読み取り
+   Content-Length がない場合（チャンク転送等）: 上限付きでストリーム読み取り"
   (let* ((content-length-raw (getf env :content-length))
          (content-length (if (stringp content-length-raw)
                              (parse-integer content-length-raw :junk-allowed t)
                              content-length-raw))
          (body-stream (getf env :raw-body)))
-    ;; サイズチェック
-    (when (and content-length (> content-length max-size))
-      (return-from read-body-safely nil))
-    ;; ボディ読み取り
-    (when (and content-length body-stream (> content-length 0))
-      (let ((body-bytes (make-array content-length :element-type '(unsigned-byte 8))))
-        (read-sequence body-bytes body-stream)
-        (babel:octets-to-string body-bytes :encoding :utf-8)))))
+    (cond
+      ;; Content-Length が max-size を超える場合は拒否
+      ((and content-length (> content-length max-size))
+       nil)
+      ;; Content-Length がある場合: 既存のロジック
+      ((and content-length body-stream (> content-length 0))
+       (let ((body-bytes (make-array content-length :element-type '(unsigned-byte 8))))
+         (read-sequence body-bytes body-stream)
+         (babel:octets-to-string body-bytes :encoding :utf-8)))
+      ;; Content-Length がない場合（チャンク転送等）: 上限付きで読み取り
+      ((and (null content-length) body-stream)
+       (let ((body-bytes (read-stream-with-limit body-stream max-size)))
+         (cond
+           ((eq body-bytes :overflow)
+            nil)  ; サイズ超過
+           ((zerop (length body-bytes))
+            nil)  ; 空のボディ
+           (t
+            (babel:octets-to-string body-bytes :encoding :utf-8)))))
+      ;; その他（ボディなし）
+      (t nil))))
 
 (defun extract-csp-report-fields (report)
   "Extract relevant fields from CSP report for logging.
@@ -84,8 +101,11 @@
        :logged - T if violation was logged, NIL otherwise
        :error - Error message if an error occurred, NIL otherwise"
   (handler-case
-      (let ((content-type (getf env :content-type)))
-        ;; Validate Content-Type
+      (let* ((content-type-raw (getf env :content-type))
+             ;; RFC 7231: Content-Type is case-insensitive
+             (content-type (when content-type-raw
+                            (string-downcase content-type-raw))))
+        ;; Validate Content-Type (case-insensitive comparison)
         (unless (and content-type
                      (or (search "application/csp-report" content-type)
                          (search "application/json" content-type)))

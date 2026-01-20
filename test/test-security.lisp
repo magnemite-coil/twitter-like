@@ -437,4 +437,26 @@
   (testing "base security headers include all non-HSTS headers"
     (let ((headers (build-security-headers)))
       (ok (= 5 (/ (length headers) 2))
-          "Should have exactly 5 base security headers (10 plist elements)"))))
+          "Should have exactly 5 base security headers (10 plist elements)")))
+
+  ;; #4: Build security headers INCLUDES HSTS in production environment
+  ;; This test uses :production keyword to override environment detection
+  (testing "build-security-headers includes HSTS in production environment"
+    (let ((headers (build-security-headers :production t)))
+      (ok (getf headers :content-security-policy)
+          "Should have CSP in production headers")
+      (ok (getf headers :strict-transport-security)
+          "Should have HSTS in production environment")
+      (ok (string= (getf headers :strict-transport-security)
+                   "max-age=63072000; includeSubDomains; preload")
+          "HSTS should have correct value with preload")
+      (ok (= 6 (/ (length headers) 2))
+          "Should have exactly 6 security headers in production (12 plist elements)")))
+
+  ;; #5: Verify :production nil explicitly excludes HSTS
+  (testing "build-security-headers with :production nil excludes HSTS"
+    (let ((headers (build-security-headers :production nil)))
+      (ok (null (getf headers :strict-transport-security))
+          "Should NOT have HSTS when :production nil is explicitly set")
+      (ok (= 5 (/ (length headers) 2))
+          "Should have exactly 5 headers when HSTS is excluded"))))

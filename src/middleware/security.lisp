@@ -51,16 +51,25 @@
 ;;; Header Building
 ;;; ============================================================
 
-(defun build-security-headers ()
+(defun build-security-headers (&key (production nil production-supplied-p))
   "Build security headers based on current environment.
    Production: All headers including HSTS
-   Development/Test: All headers except HSTS (allows HTTP)"
-  (if (production-environment-p)
-      ;; Production: full security headers including HSTS
-      (append (copy-list *base-security-headers*)
-              (copy-list *hsts-header*))
-      ;; Development/Test: security headers without HSTS
-      (copy-list *base-security-headers*)))
+   Development/Test: All headers except HSTS (allows HTTP)
+
+   Keyword arguments:
+     :production - If supplied, overrides environment detection for testing.
+                   T = production mode (include HSTS)
+                   NIL = non-production mode (exclude HSTS)
+                   If not supplied, uses production-environment-p."
+  (let ((is-production (if production-supplied-p
+                           production
+                           (production-environment-p))))
+    (if is-production
+        ;; Production: full security headers including HSTS
+        (append (copy-list *base-security-headers*)
+                (copy-list *hsts-header*))
+        ;; Development/Test: security headers without HSTS
+        (copy-list *base-security-headers*))))
 
 ;;; ============================================================
 ;;; Header Key Normalization

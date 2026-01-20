@@ -83,13 +83,16 @@
       (ok (null result)
           "Should return NIL for oversized body")))
 
-  ;; #4: Handle NIL content-length
-  (testing "handles NIL content-length"
+  ;; #4: Handle NIL content-length (chunked transfer encoding)
+  ;; When Content-Length is missing, the function reads body using chunked transfer support
+  (testing "handles NIL content-length (chunked transfer)"
     (let* ((env (make-mock-env :content-type "application/csp-report"
                                :body-string "{\"test\": 1}"))
            (result (read-body-safely env +max-csp-report-size+)))
-      (ok (null result)
-          "Should return NIL when content-length is missing")))
+      (ok (stringp result)
+          "Should read body when content-length is missing (chunked transfer)")
+      (ok (string= result "{\"test\": 1}")
+          "Should read correct body content for chunked transfer")))
 
   ;; #5: Handle zero content-length
   (testing "handles zero content-length"
