@@ -58,7 +58,8 @@
                   :components
                   ((:file "health")
                    (:file "auth")
-                   (:file "tweet")))                           ; ツイートハンドラー
+                   (:file "tweet")
+                   (:file "csp-report")))                           ; ツイートハンドラー
                  (:file "web" :depends-on ("config" "util" "middleware" "handler"))  ; handlerに依存
                  (:file "main" :depends-on ("config" "db" "web" "handler" "middleware" "util" "model" "service")))))
   :description "2012年頃のTwitterをリバースエンジニアリングするプロジェクト"
@@ -82,5 +83,10 @@
                  (:file "test-crypto")
                  (:file "test-session")
                  (:file "test-request")
-                 (:file "test-cors"))))
+                 ;; ミドルウェアユニットテスト用共通ユーティリティ
+                 (:file "util")
+                 (:file "test-cors" :depends-on ("util"))
+                 (:file "test-security" :depends-on ("util"))
+                 ;; ハンドラーユニットテスト
+                 (:file "test-csp-report"))))
   :perform (test-op (op c) (symbol-call :rove :run c)))

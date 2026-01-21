@@ -37,6 +37,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Header parsing and middleware behavior tests
   - Total 33 test cases ensuring CORS security compliance
 
+- **Security Middleware Unit Tests** (test/test-security.lisp)
+  - Header addition, preservation, and override tests (OWASP security boundary)
+  - Environment-based HSTS configuration (production only)
+  - Fallback 500 response with security headers (defense-in-depth)
+  - String/keyword header key normalization
+  - Total 31 test cases covering all security header behaviors
+
+- **CSP Report Handler & Tests** (src/handler/csp-report.lisp, test/test-csp-report.lisp)
+  - POST /api/csp-report endpoint for CSP violation monitoring
+  - DoS protection with 64KB body size limit
+  - Chunked transfer encoding support (RFC 7230)
+  - Case-insensitive Content-Type comparison (RFC 7231)
+  - Total 24 test cases for handler and utility functions
+
 ### Changed
 
 - **Timestamp Format** (Breaking Change)
@@ -51,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Improved login rate limiting with atomic Lua operations
 - Added Vary: Origin header to CORS responses for cache poisoning prevention (OWASP recommendation)
+- Enhanced security headers middleware with configurable HSTS (production-only)
+- Added CSP violation reporting endpoint for security monitoring
 
 ## [0.2.0] - 2025-11-29
 
