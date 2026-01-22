@@ -61,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Non-integer query parameters (max_id, since_id, count, limit, offset) now return 400 error
   - Out-of-range bigint values return 400 error
 
+### Fixed
+
+- **Session Middleware** (src/middleware/session.lisp)
+  - Fix `DEFCONSTANT-UNEQL` error on system reload by changing Lua script definition from `defconstant` to `defparameter`
+  - String literals in Common Lisp are not `eql` across recompilations, causing SBCL to reject redefinition
+
 ### Security
 
 - Improved login rate limiting with atomic Lua operations
