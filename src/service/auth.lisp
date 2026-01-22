@@ -20,7 +20,9 @@
            :+login-rate-limit+
            :+login-rate-window+
            :+register-rate-limit+
-           :+register-rate-window+))
+           :+register-rate-window+
+           ;; Lockout threshold constant (for test assertions)
+           :+lockout-threshold+))
 
 (in-package :twitter-like.service.auth)
 
