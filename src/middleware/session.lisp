@@ -139,7 +139,7 @@
 ;; touch-session用Luaスクリプト（TOCTOU防止のため原子的に実行）
 ;; EXISTS→HSETの間にセッションが削除/期限切れになった場合、
 ;; TTLなしの新しいキーが作成されることを防ぐ
-(defconstant +touch-session-lua-script+
+(defparameter +touch-session-lua-script+
   "local key = KEYS[1]
 local now = ARGV[1]
 -- セッションが存在しTTL > 0の場合のみ更新
