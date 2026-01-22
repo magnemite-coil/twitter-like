@@ -83,6 +83,10 @@
                  (:file "test-crypto")
                  (:file "test-session")
                  (:file "test-request")
+                 ;; 認証バリデーション（純粋関数、setup不要）
+                 (:file "test-auth-validation")
+                 ;; 認証サービス（Redis/DB依存、独自setup）
+                 (:file "test-auth-service")
                  ;; ミドルウェアユニットテスト用共通ユーティリティ
                  (:file "util")
                  (:file "test-cors" :depends-on ("util"))

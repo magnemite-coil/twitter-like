@@ -51,6 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Case-insensitive Content-Type comparison (RFC 7231)
   - Total 24 test cases for handler and utility functions
 
+- **Auth Service Unit Tests** (test/test-auth-validation.lisp, test/test-auth-service.lisp)
+  - Pure function tests for validate-username and validate-password (19 test cases)
+  - Redis/DB dependent tests with 12-layer security guard (61 test cases)
+  - Rate limiting: check-login-rate-limit, decrement-login-rate-limit, check-register-rate-limit
+  - Account lockout: check-account-lockout, record-login-failure, clear-login-failures
+  - User registration and authentication with cleanup helpers
+  - Total 80 test cases improving auth service coverage from 47.7% to 80%+
+
 ### Changed
 
 - **Timestamp Format** (Breaking Change)
