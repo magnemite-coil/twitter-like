@@ -211,7 +211,15 @@
                              ("Connection" . "close")))
       (dexador.error:http-request-failed (e)
         (ok (= (dexador:response-status e) 400)
-            "Should return 400 Bad Request"))))
+            "Should return 400 Bad Request")
+        ;; クライアント起因エラーなのでerror_idは含まれない
+        (handler-case
+            (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+              (ok (null (gethash "error_id" response))
+                  "error_id should NOT be present for client errors"))
+          (com.inuoe.jzon:json-parse-error ()
+            ;; レスポンスがJSONでない場合、error_idは含まれていない
+            (ok t "Response is not JSON, so error_id cannot be present"))))))
 
   (testing "POST /api/auth/register with invalid JSON returns 400"
     (handler-case
@@ -221,7 +229,15 @@
                              ("Connection" . "close")))
       (dexador.error:http-request-failed (e)
         (ok (= (dexador:response-status e) 400)
-            "Should return 400 for invalid JSON")))))
+            "Should return 400 for invalid JSON")
+        ;; クライアント起因エラーなのでerror_idは含まれない
+        (handler-case
+            (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+              (ok (null (gethash "error_id" response))
+                  "error_id should NOT be present for client errors"))
+          (com.inuoe.jzon:json-parse-error ()
+            ;; レスポンスがJSONでない場合、error_idは含まれていない
+            (ok t "Response is not JSON, so error_id cannot be present")))))))
 
 (deftest test-login-json-parse-errors
   (testing "POST /api/auth/login with empty body returns 400"
@@ -232,7 +248,15 @@
                              ("Connection" . "close")))
       (dexador.error:http-request-failed (e)
         (ok (= (dexador:response-status e) 400)
-            "Should return 400 Bad Request"))))
+            "Should return 400 Bad Request")
+        ;; クライアント起因エラーなのでerror_idは含まれない
+        (handler-case
+            (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+              (ok (null (gethash "error_id" response))
+                  "error_id should NOT be present for client errors"))
+          (com.inuoe.jzon:json-parse-error ()
+            ;; レスポンスがJSONでない場合、error_idは含まれていない
+            (ok t "Response is not JSON, so error_id cannot be present"))))))
 
   (testing "POST /api/auth/login with invalid JSON returns 400"
     (handler-case
@@ -242,7 +266,15 @@
                              ("Connection" . "close")))
       (dexador.error:http-request-failed (e)
         (ok (= (dexador:response-status e) 400)
-            "Should return 400 for invalid JSON")))))
+            "Should return 400 for invalid JSON")
+        ;; クライアント起因エラーなのでerror_idは含まれない
+        (handler-case
+            (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+              (ok (null (gethash "error_id" response))
+                  "error_id should NOT be present for client errors"))
+          (com.inuoe.jzon:json-parse-error ()
+            ;; レスポンスがJSONでない場合、error_idは含まれていない
+            (ok t "Response is not JSON, so error_id cannot be present")))))))
 
 ;;; ============================================================
 ;;; Phase 1: username検証テスト
