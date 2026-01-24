@@ -337,7 +337,7 @@
   (testing "POST /api/auth/login returns 429 after account lockout"
     ;; 重要: IPレート制限データをクリア（レート制限とロックアウトの競合を防ぐ）
     ;; +login-rate-limit+ と +lockout-threshold+ が両方5回のため、
-    ;; クリアしないとIPレート制限が先に発動してしまう
+    ;; 各ループ後にIPレート制限をクリアしないと先に発動してしまう
     (clear-all-rate-limits)
     (let* ((username (format nil "locktest_~A" (get-universal-time)))
            (password "this-is-a-very-secure-password"))
@@ -350,12 +350,16 @@
                                (gethash "password" h) password)
                          h))
             ;; 2. 5回失敗してロックアウト発動
+            ;; 注意: 各失敗後にIPレート制限をクリアしてロックアウトが発動するようにする
             (loop for i from 1 to 5
-                  do (json-post "/api/auth/login"
-                                (let ((h (make-hash-table :test 'equal)))
-                                  (setf (gethash "username" h) username
-                                        (gethash "password" h) "wrong-password!!")
-                                  h)))
+                  do (progn
+                       (json-post "/api/auth/login"
+                                  (let ((h (make-hash-table :test 'equal)))
+                                    (setf (gethash "username" h) username
+                                          (gethash "password" h) "wrong-password!!")
+                                    h))
+                       ;; IPレート制限をクリア（ロックアウトデータは保持）
+                       (clear-login-rate-limits)))
             ;; 3. 正しいパスワードでもロックアウト
             (multiple-value-bind (body status headers)
                 (json-post "/api/auth/login"
@@ -366,8 +370,8 @@
               (declare (ignore headers))
               (ok (= status 429) "Should return 429")
               (let ((response (com.inuoe.jzon:parse body)))
-                (ok (search "Too many" (gethash "error" response))
-                    "Error should mention too many attempts")
+                (ok (search "locked" (gethash "error" response))
+                    "Error should mention account locked")
                 ;; クライアント起因エラーなのでerror_idは含まれない
                 (ok (null (gethash "error_id" response))
                     "error_id should NOT be present for client errors"))))
@@ -546,3 +550,72 @@
                           :headers `(("cookie" . ,cookie)))
               (declare (ignore body headers))
               (ok (= status 401) "Should return 401 Session expired"))))))))
+
+;;; ============================================================
+;;; Phase 2: register レート制限テスト (R-5)
+;;; ============================================================
+
+(deftest test-register-rate-limit
+  (testing "POST /api/auth/register returns 429 with RateLimit headers after threshold"
+    ;; レート制限をクリア
+    (clear-all-rate-limits)
+    ;; +register-rate-limit+ = 3 なので、4回目で429
+    (loop for i from 1 to 4
+          for username = (format nil "regrl_~A_~A" (generate-unique-id) i)
+          do (multiple-value-bind (body status headers)
+                 (json-post "/api/auth/register"
+                            (let ((h (make-hash-table :test 'equal)))
+                              (setf (gethash "username" h) username
+                                    (gethash "password" h) "this-is-a-very-secure-password")
+                              h))
+               (if (<= i 3)
+                   (ok (= status 201)
+                       (format nil "Attempt ~A should succeed (201)" i))
+                   (progn
+                     (ok (= status 429)
+                         "4th attempt should be rate limited (429)")
+                     ;; RateLimitヘッダーの検証（小文字で返ってくる）
+                     (ok (gethash "ratelimit" headers)
+                         "RateLimit header should be present")
+                     (ok (gethash "ratelimit-policy" headers)
+                         "RateLimit-Policy header should be present")
+                     (ok (gethash "retry-after" headers)
+                         "Retry-After header should be present")
+                     ;; error_id の非存在確認（クライアント起因エラー）
+                     (let ((response (com.inuoe.jzon:parse body)))
+                       (ok (null (gethash "error_id" response))
+                           "error_id should NOT be present for client errors"))))))))
+
+;;; ============================================================
+;;; Phase 3: ユーザーDB不整合テスト (M-5)
+;;; ============================================================
+
+(deftest test-me-user-deleted-from-db
+  (testing "GET /api/auth/me returns 401 when user is deleted from database"
+    ;; レート制限をクリア
+    (clear-all-rate-limits)
+    (let* ((username (format nil "del_~A" (generate-unique-id)))
+           (password "this-is-a-very-secure-password"))
+      ;; 1. ユーザー登録
+      (multiple-value-bind (body status headers)
+          (json-post "/api/auth/register"
+                     (let ((h (make-hash-table :test 'equal)))
+                       (setf (gethash "username" h) username
+                             (gethash "password" h) password)
+                       h))
+        (declare (ignore body))
+        (ok (= status 201) "Register should return 201")
+        (let* ((session-id (extract-session-id-from-headers headers))
+               (cookie (format nil "session_id=~A" session-id)))
+          (ok session-id "Session ID should be extracted")
+          (when session-id
+            ;; 2. ユーザーをDBから直接削除
+            (let ((user (twitter-like.model.user:find-user-by-username username)))
+              (when user
+                (mito:delete-dao user)))
+            ;; 3. me試行（ユーザー不在エラーを期待）
+            (multiple-value-bind (body status headers)
+                (safe-get "/api/auth/me"
+                          :headers `(("cookie" . ,cookie)))
+              (declare (ignore body headers))
+              (ok (= status 401) "Should return 401 when user not found"))))))))
