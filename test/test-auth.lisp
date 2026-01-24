@@ -651,3 +651,54 @@
                           :headers `(("cookie" . ,cookie)))
               (declare (ignore body headers))
               (ok (= status 401) "Should return 401 when user not found"))))))))
+
+;;; ============================================================
+;;; Phase 3: リクエストボディサイズ超過テスト (R-6, L-8)
+;;; ============================================================
+
+(defun make-large-body (size-bytes)
+  "指定サイズのJSONボディを生成（パディング付き）"
+  ;; {"username":"test","password":"...padding..."}
+  (let* ((prefix "{\"username\":\"test\",\"password\":\"")
+         (suffix "\"}")
+         (overhead (+ (length prefix) (length suffix)))
+         (padding-size (max 0 (- size-bytes overhead))))
+    (concatenate 'string prefix (make-string padding-size :initial-element #\a) suffix)))
+
+(deftest test-register-request-too-large
+  (testing "POST /api/auth/register with too large body returns 413"
+    ;; +max-body-size+ = 1MB (1048576 bytes) なので、1.1MB のボディを送信
+    ;; 注意: このテストは実際に大きなデータを送信するため、少し時間がかかる
+    (let ((large-body (make-large-body (floor (* 1024 1024 1.1)))))  ; 1.1MB (整数化)
+      (handler-case
+          (dex:post (make-url "/api/auth/register")
+                    :content large-body
+                    :headers '(("Content-Type" . "application/json")
+                               ("Connection" . "close"))
+                    :read-timeout 30)
+        (dexador.error:http-request-failed (e)
+          (ok (= (dexador:response-status e) 413)
+              "Should return 413 Request Entity Too Large")
+          (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+            (ok (search "too large" (gethash "error" response))
+                "Error message should mention 'too large'")
+            (ok (null (gethash "error_id" response))
+                "error_id should NOT be present for client errors")))))))
+
+(deftest test-login-request-too-large
+  (testing "POST /api/auth/login with too large body returns 413"
+    (let ((large-body (make-large-body (floor (* 1024 1024 1.1)))))  ; 1.1MB (整数化)
+      (handler-case
+          (dex:post (make-url "/api/auth/login")
+                    :content large-body
+                    :headers '(("Content-Type" . "application/json")
+                               ("Connection" . "close"))
+                    :read-timeout 30)
+        (dexador.error:http-request-failed (e)
+          (ok (= (dexador:response-status e) 413)
+              "Should return 413 Request Entity Too Large")
+          (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+            (ok (search "too large" (gethash "error" response))
+                "Error message should mention 'too large'")
+            (ok (null (gethash "error_id" response))
+                "error_id should NOT be present for client errors")))))))
