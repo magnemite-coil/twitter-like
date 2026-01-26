@@ -59,6 +59,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - User registration and authentication with cleanup helpers
   - Total 80 test cases improving auth service coverage from 47.7% to 80%+
 
+- **Auth Handler Integration Tests** (test/test-auth.lisp)
+  - Content-Type validation tests (415 for missing/invalid Content-Type)
+  - JSON parse error tests (400 for empty/invalid body)
+  - Username validation tests (400 for missing/empty username)
+  - Session validation tests (401 for missing/invalid session)
+  - Session timeout tests (401 for absolute/idle timeout)
+  - Account lockout tests (429 after 5 failed attempts)
+  - Rate limit tests with IETF RateLimit header verification
+  - Request body size limit tests (413 for >1MB body)
+  - User DB inconsistency tests (401 when user deleted)
+  - error_id verification for all client-caused errors (4xx should NOT have error_id)
+  - Total 23 test cases covering handler/auth.lisp edge cases
+
 ### Changed
 
 - **Timestamp Format** (Breaking Change)
