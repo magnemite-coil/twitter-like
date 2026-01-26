@@ -319,14 +319,22 @@
                   :headers '(("Connection" . "close")))
       (dexador.error:http-request-failed (e)
         (ok (= (dexador:response-status e) 401)
-            "Should return 401 Unauthorized")))))
+            "Should return 401 Unauthorized")
+        ;; クライアント起因エラーなのでerror_idは含まれない
+        (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+          (ok (null (gethash "error_id" response))
+              "error_id should NOT be present for client errors"))))))
 
 (deftest test-me-without-session
   (testing "GET /api/auth/me without session returns 401"
     (multiple-value-bind (body status headers)
         (safe-get "/api/auth/me")
-      (declare (ignore body headers))
-      (ok (= status 401) "Should return 401 Unauthorized"))))
+      (declare (ignore headers))
+      (ok (= status 401) "Should return 401 Unauthorized")
+      ;; クライアント起因エラーなのでerror_idは含まれない
+      (let ((response (com.inuoe.jzon:parse body)))
+        (ok (null (gethash "error_id" response))
+            "error_id should NOT be present for client errors")))))
 
 ;;; ============================================================
 ;;; Phase 1: 無効なセッションIDテスト
@@ -340,15 +348,23 @@
                              ("Connection" . "close")))
       (dexador.error:http-request-failed (e)
         (ok (= (dexador:response-status e) 401)
-            "Should return 401 for invalid session")))))
+            "Should return 401 for invalid session")
+        ;; クライアント起因エラーなのでerror_idは含まれない
+        (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+          (ok (null (gethash "error_id" response))
+              "error_id should NOT be present for client errors"))))))
 
 (deftest test-me-with-invalid-session
   (testing "GET /api/auth/me with invalid session ID returns 401"
     (multiple-value-bind (body status headers)
         (safe-get "/api/auth/me"
                   :headers '(("cookie" . "session_id=invalid-session-id-here")))
-      (declare (ignore body headers))
-      (ok (= status 401) "Should return 401 for invalid session"))))
+      (declare (ignore headers))
+      (ok (= status 401) "Should return 401 for invalid session")
+      ;; クライアント起因エラーなのでerror_idは含まれない
+      (let ((response (com.inuoe.jzon:parse body)))
+        (ok (null (gethash "error_id" response))
+            "error_id should NOT be present for client errors")))))
 
 ;;; ============================================================
 ;;; Phase 2: アカウントロックアウトテスト
@@ -488,7 +504,11 @@
                                      ("Connection" . "close")))
               (dexador.error:http-request-failed (e)
                 (ok (= (dexador:response-status e) 401)
-                    "Should return 401 Session expired")))))))))
+                    "Should return 401 Session expired")
+                ;; クライアント起因エラーなのでerror_idは含まれない
+                (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+                  (ok (null (gethash "error_id" response))
+                      "error_id should NOT be present for client errors"))))))))))
 
 (deftest test-logout-session-idle-timeout
   (testing "POST /api/auth/logout with expired session (idle timeout) returns 401"
@@ -521,7 +541,11 @@
                                      ("Connection" . "close")))
               (dexador.error:http-request-failed (e)
                 (ok (= (dexador:response-status e) 401)
-                    "Should return 401 Session expired")))))))))
+                    "Should return 401 Session expired")
+                ;; クライアント起因エラーなのでerror_idは含まれない
+                (let ((response (com.inuoe.jzon:parse (dexador:response-body e))))
+                  (ok (null (gethash "error_id" response))
+                      "error_id should NOT be present for client errors"))))))))))
 
 (deftest test-me-session-absolute-timeout
   (testing "GET /api/auth/me with expired session (absolute timeout) returns 401"
@@ -550,8 +574,12 @@
             (multiple-value-bind (body status headers)
                 (safe-get "/api/auth/me"
                           :headers `(("cookie" . ,cookie)))
-              (declare (ignore body headers))
-              (ok (= status 401) "Should return 401 Session expired"))))))))
+              (declare (ignore headers))
+              (ok (= status 401) "Should return 401 Session expired")
+              ;; クライアント起因エラーなのでerror_idは含まれない
+              (let ((response (com.inuoe.jzon:parse body)))
+                (ok (null (gethash "error_id" response))
+                    "error_id should NOT be present for client errors")))))))))
 
 (deftest test-me-session-idle-timeout
   (testing "GET /api/auth/me with expired session (idle timeout) returns 401"
@@ -580,8 +608,12 @@
             (multiple-value-bind (body status headers)
                 (safe-get "/api/auth/me"
                           :headers `(("cookie" . ,cookie)))
-              (declare (ignore body headers))
-              (ok (= status 401) "Should return 401 Session expired"))))))))
+              (declare (ignore headers))
+              (ok (= status 401) "Should return 401 Session expired")
+              ;; クライアント起因エラーなのでerror_idは含まれない
+              (let ((response (com.inuoe.jzon:parse body)))
+                (ok (null (gethash "error_id" response))
+                    "error_id should NOT be present for client errors")))))))))
 
 ;;; ============================================================
 ;;; Phase 2: register レート制限テスト (R-5)
@@ -649,8 +681,12 @@
             (multiple-value-bind (body status headers)
                 (safe-get "/api/auth/me"
                           :headers `(("cookie" . ,cookie)))
-              (declare (ignore body headers))
-              (ok (= status 401) "Should return 401 when user not found"))))))))
+              (declare (ignore headers))
+              (ok (= status 401) "Should return 401 when user not found")
+              ;; クライアント起因エラーなのでerror_idは含まれない
+              (let ((response (com.inuoe.jzon:parse body)))
+                (ok (null (gethash "error_id" response))
+                    "error_id should NOT be present for client errors")))))))))
 
 ;;; ============================================================
 ;;; Phase 3: リクエストボディサイズ超過テスト (R-6, L-8)
