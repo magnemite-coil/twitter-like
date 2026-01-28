@@ -72,6 +72,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - error_id verification for all client-caused errors (4xx should NOT have error_id)
   - Total 23 test cases covering handler/auth.lisp edge cases
 
+- **Config Validation Unit Tests** (test/test-config.lisp)
+  - `required-env-var`: Environment variable retrieval with error message verification (3 cases)
+  - `validate-secret-key`: Secret key validation with boundary value tests (10 cases)
+  - `reload-config`: Configuration reload behavior in test/development environments (2 cases)
+  - Expression coverage improved from 75.9% to 90.3%
+  - Branch coverage improved from 38.9% to 77.8%
+  - Total 15 test cases covering config.lisp validation functions
+
+- **Test Utilities** (test/util.lisp)
+  - `with-env-var`: Environment variable temporary modification helper (refactored from test-request.lisp)
+
 ### Changed
 
 - **Timestamp Format** (Breaking Change)

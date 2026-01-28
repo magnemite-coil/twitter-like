@@ -71,8 +71,10 @@
                :dexador)              ; HTTPクライアント（テスト用）
   :components ((:module "test"
                 :components
-                ((:file "setup")
-                 (:file "test-config" :depends-on ("setup"))
+                (;; 共通ユーティリティ（最初に読み込む）
+                 (:file "util")
+                 (:file "setup")
+                 (:file "test-config" :depends-on ("setup" "util"))
                  (:file "test-db" :depends-on ("setup"))
                  (:file "test-health" :depends-on ("setup"))
                  (:file "test-auth" :depends-on ("setup"))
@@ -82,13 +84,12 @@
                  ;; 対象関数のみをテストするため軽量な独自setupを使用
                  (:file "test-crypto")
                  (:file "test-session")
-                 (:file "test-request")
+                 (:file "test-request" :depends-on ("util"))
                  ;; 認証バリデーション（純粋関数、setup不要）
                  (:file "test-auth-validation")
                  ;; 認証サービス（Redis/DB依存、独自setup）
                  (:file "test-auth-service")
-                 ;; ミドルウェアユニットテスト用共通ユーティリティ
-                 (:file "util")
+                 ;; ミドルウェアユニットテスト（util依存）
                  (:file "test-cors" :depends-on ("util"))
                  (:file "test-security" :depends-on ("util"))
                  ;; ハンドラーユニットテスト
