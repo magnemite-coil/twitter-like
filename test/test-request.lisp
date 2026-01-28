@@ -6,7 +6,9 @@
                 :clamp-pagination-count
                 ;; エクスポート済み定数
                 :+max-bigint+
-                :+max-offset+))
+                :+max-offset+)
+  (:import-from :twitter-like-test.util
+                :with-env-var))
   ;; 注: flexi-streams は twitter-like 本体の依存に含まれているため追加不要
   ;; (twitter-like.asd の :depends-on に :flexi-streams が含まれている)
   ;; 既存テスト（test-session.lisp等）との一貫性のため、
@@ -31,24 +33,12 @@
 ;;; ヘルパー関数
 ;;; ============================================================
 
+;;; NOTE: with-env-var is now shared via twitter-like-test.util.
+;;; See test/util.lisp for the implementation.
+;;;
 ;;; 注: test-session.lisp では *config* ハッシュテーブルを直接差し替えるパターンを使用。
 ;;; 将来的にテスト間で設定差し替えのユーティリティを共通化する場合は、
 ;;; test/util.lisp 等に統合を検討する。
-
-(defun with-env-var (name value thunk)
-  "環境変数を一時的に設定してthunkを実行、完了後に復元
-   value が NIL の場合は環境変数を削除"
-  (let ((original (uiop:getenv name)))
-    (unwind-protect
-        (progn
-          (if value
-              (sb-posix:setenv name value 1)
-              (sb-posix:unsetenv name))
-          (funcall thunk))
-      ;; 必ず復元
-      (if original
-          (sb-posix:setenv name original 1)
-          (sb-posix:unsetenv name)))))
 
 ;;; setup/teardown 不要（純粋関数のテスト）
 

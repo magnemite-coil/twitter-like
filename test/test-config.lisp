@@ -3,7 +3,9 @@
   (:import-from :twitter-like.config
                 :load-config
                 :get-config
-                :*config*))
+                :*config*)
+  (:import-from :twitter-like-test.util
+                :with-env-var))
 
 (in-package :twitter-like-test.config)
 
@@ -28,25 +30,8 @@
 ;;; Helper Functions
 ;;; ============================================================
 
-;;; NOTE: with-env-var は test-request.lisp (L38-51) に既に定義されている。
-;;; 将来的には test/util.lisp に共通化することを検討。
-;;; 現時点では test-request.lisp が twitter-like-test.util を使用していないため、
-;;; 重複定義を許容する（共通化はリファクタリング課題として別途対応）。
-
-(defun with-env-var (name value thunk)
-  "環境変数を一時的に設定してthunkを実行、完了後に復元
-   value が NIL の場合は環境変数を削除"
-  (let ((original (uiop:getenv name)))
-    (unwind-protect
-        (progn
-          (if value
-              (sb-posix:setenv name value 1)
-              (sb-posix:unsetenv name))
-          (funcall thunk))
-      ;; 必ず復元
-      (if original
-          (sb-posix:setenv name original 1)
-          (sb-posix:unsetenv name)))))
+;;; NOTE: with-env-var is now shared via twitter-like-test.util.
+;;; See test/util.lisp for the implementation.
 
 ;;; ============================================================
 ;;; setup/teardown
@@ -191,6 +176,24 @@
       ;; cleanup
       (remhash "test-numeric-secret" *config*)))
 
+  ;; Normal case: mixed hex characters (realistic pattern)
+  ;; Optional test per design doc section 5.6 (3)
+  (testing "returns T for mixed hex character key"
+    (unwind-protect
+        (progn
+          ;; "0123456789abcdef" repeated 4 times = 64 chars
+          ;; More realistic test data than single-character strings
+          (setf (gethash "test-mixed-secret" *config*)
+                (concatenate 'string
+                             "0123456789abcdef"
+                             "0123456789abcdef"
+                             "0123456789abcdef"
+                             "0123456789abcdef"))
+          (ok (twitter-like.config::validate-secret-key "test-mixed-secret" 64)
+              "Should return T for mixed hex character key"))
+      ;; cleanup
+      (remhash "test-mixed-secret" *config*)))
+
   ;; Error case: key is missing (nil)
   (testing "signals error when key is missing (nil)"
     ;; "test-missing-key" does not exist in *config*
@@ -198,6 +201,18 @@
     (remhash "test-missing-key" *config*)
     (ok (signals (twitter-like.config::validate-secret-key "test-missing-key" 64))
         "Should signal error for missing key"))
+
+  ;; Error message verification (optional per design doc section 5.6 (1))
+  ;; Verify that error messages contain the key name for debugging
+  (testing "error message contains key name for missing key"
+    (remhash "test-missing-key-msg" *config*)
+    (handler-case
+        (progn
+          (twitter-like.config::validate-secret-key "test-missing-key-msg" 64)
+          (fail "Should have signaled an error"))
+      (error (e)
+        (ok (search "test-missing-key-msg" (princ-to-string e))
+            "Error message should contain the key name"))))
 
   ;; Error case: empty string
   (testing "signals error when key is empty string"
