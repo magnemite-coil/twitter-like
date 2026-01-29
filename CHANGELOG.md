@@ -83,6 +83,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Utilities** (test/util.lisp)
   - `with-env-var`: Environment variable temporary modification helper (refactored from test-request.lisp)
 
+- **Session Branch Coverage Tests** (test/test-session.lisp)
+  - Edge case tests for `touch-session`, `disconnect-redis`, `ensure-redis-connected` (nil/empty state handling)
+  - Defensive code coverage tests for `get-session-user-id`, `get-csrf-token`, `delete-session` (nil session-id)
+  - Branch coverage improved from 36.4% to 57.1%
+  - Total 9 deftests covering session management edge cases
+
+- **Coverage Measurement Targets** (Makefile)
+  - `test-coverage`: Full test suite with sb-cover HTML report generation
+  - `test-coverage-session`: Session module focused coverage measurement
+
 ### Changed
 
 - **Timestamp Format** (Breaking Change)

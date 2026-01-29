@@ -1,17 +1,24 @@
 (defpackage twitter-like-test.session
   (:use :cl :rove)
   (:import-from :twitter-like.middleware.session
+                ;; Connection management
+                :ensure-redis-connected
+                :disconnect-redis
+                :*redis-connection*
+                ;; Session CRUD
                 :create-session
                 :get-session-user-id
                 :get-csrf-token
                 :delete-session
                 :touch-session
+                ;; Session expiration
                 :session-idle-expired-p
                 :session-absolute-expired-p
+                ;; Session security
                 :rotate-session
+                ;; Cookie building
                 :build-session-cookie
-                :build-session-clear-cookie
-                :ensure-redis-connected)
+                :build-session-clear-cookie)
   (:import-from :twitter-like.util.crypto
                 :generate-session-id)
   (:import-from :twitter-like.util.time
@@ -335,7 +342,30 @@
     (let* ((session-id (create-session 22222)))
       (delete-session session-id)
       (ok (null (get-session-user-id session-id))
-          "Session should be deleted"))))
+          "Session should be deleted")))
+
+  ;; nil 分岐テスト（防御的コード用、カバレッジ維持用）
+  ;; これらは通常のアプリケーションフローでは発生しない分岐をカバーするためのもの
+  (testing "get-session-user-id returns NIL when session-id is nil"
+    (ok (null (get-session-user-id nil))
+        "Should return NIL for nil session-id"))
+
+  (testing "get-csrf-token returns NIL when session-id is nil"
+    (ok (null (get-csrf-token nil))
+        "Should return NIL for nil session-id"))
+
+  (testing "delete-session does nothing when session-id is nil"
+    ;; delete-session returns immediately when session-id is nil
+    ;; Verify no side effects on existing sessions
+    (let* ((session-id (create-session 99999))
+           (key (format nil "session:~A" session-id)))
+      (unwind-protect
+          (progn
+            ;; Passing nil should not affect existing sessions
+            (delete-session nil)
+            (ok (get-session-user-id session-id)
+                "Existing session should not be affected by delete-session nil"))
+        (red:del key)))))
 
 ;;; ============================================================
 ;;; touch-session テスト
@@ -377,7 +407,11 @@
       ;; NIL安全: red:existsがNILを返す可能性を考慮
       (let ((exists-result (red:exists key)))
         (ok (or (null exists-result) (zerop exists-result))
-            "Should NOT create new session data for non-existent session")))))
+            "Should NOT create new session data for non-existent session"))))
+
+  (testing "touch-session returns NIL when session-id is nil"
+    (ok (null (touch-session nil))
+        "Should return NIL for nil session-id")))
 
 ;;; ============================================================
 ;;; rotate-session テスト
@@ -425,3 +459,42 @@
             (ok (= (get-session-user-id new-session-id) user-id)
                 "New session should have correct user ID"))
         (delete-session new-session-id)))))
+
+;;; ============================================================
+;;; disconnect-redis Edge Case Tests (New)
+;;; ============================================================
+
+(deftest test-disconnect-redis-edge-cases
+  (testing "disconnect-redis does nothing when not connected"
+    (let ((original-connection *redis-connection*))
+      ;; Verify connection before test (check state consistency)
+      (ok (red:ping) "Precondition: Redis connection should be active")
+      (unwind-protect
+          (progn
+            ;; Temporarily set connection to nil
+            (setf *redis-connection* nil)
+            ;; Verify completes without error
+            (disconnect-redis)
+            (ok t "Should complete without error when not connected"))
+        ;; Restore connection (cleanup contains no assertions)
+        (setf *redis-connection* original-connection)))
+    ;; Verify connection after restoration (assertion outside unwind-protect)
+    (ok (red:ping) "Connection should be restored and functional")))
+
+;;; ============================================================
+;;; ensure-redis-connected Edge Case Tests (New)
+;;; ============================================================
+
+(deftest test-ensure-redis-connected-edge-cases
+  (testing "ensure-redis-connected does nothing when already connected"
+    ;; Precondition: already connected via setup
+    ;; Save connection object to verify identity
+    (let ((original-connection *redis-connection*))
+      (ok original-connection
+          "Precondition: should be connected")
+      ;; Call should complete without error
+      (ensure-redis-connected)
+      ;; Verify same connection object is maintained
+      ;; (no new connection created)
+      (ok (eq *redis-connection* original-connection)
+          "Connection object should be unchanged (no reconnection)"))))
