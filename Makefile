@@ -1,4 +1,4 @@
-.PHONY: test test-config test-db test-health test-setup test-teardown test-clean test-crypto test-session test-request test-cors test-security test-csp-report test-auth-validation test-auth-service
+.PHONY: test test-config test-db test-health test-setup test-teardown test-clean test-crypto test-session test-request test-cors test-security test-csp-report test-auth-validation test-auth-service test-coverage test-coverage-session
 
 CACHE_DIR := $(PWD)/var/cache
 QL_LOCAL_PROJECTS := $(PWD)/vendor
@@ -214,6 +214,58 @@ test-auth-service: test-setup
 		     --eval '(ql:quickload :twitter-like/tests)' \
 		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.auth-service))' \
 		     --quit; \
+	else \
+		echo "Error: .env.test file not found"; \
+		exit 1; \
+	fi
+
+# カバレッジ測定（全テスト）
+# 注意: sb-coverはコンパイル時にカバレッジ情報を収集するため、
+# FASLキャッシュをクリアしてから実行する必要がある
+test-coverage: test-setup
+	@echo "Running tests with coverage measurement..."
+	@echo "Clearing FASL cache for accurate coverage..."
+	@rm -rf $(CACHE_DIR)/common-lisp/sbcl-*/**/twitter-like* 2>/dev/null || true
+	@mkdir -p coverage $(CACHE_DIR) $(QL_LOCAL_PROJECTS)
+	@if [ -f .env.test ]; then \
+		XDG_CACHE_HOME=$(CACHE_DIR) QL_LOCAL_PROJECTS=$(QL_LOCAL_PROJECTS) sbcl \
+		     --eval '(require :sb-cover)' \
+		     --eval '(declaim (optimize sb-cover:store-coverage-data))' \
+		     --eval '(ql:quickload :cl-dotenv)' \
+		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
+		     --eval '(cl-dotenv:load-env ".env.test")' \
+		     --eval '(ql:quickload :twitter-like/tests)' \
+		     --eval '(asdf:test-system :twitter-like)' \
+		     --eval '(sb-cover:report "coverage/")' \
+		     --quit && \
+		echo "✓ Coverage report generated in coverage/" && \
+		echo "  Open coverage/cover-index.html to view results"; \
+	else \
+		echo "Error: .env.test file not found"; \
+		exit 1; \
+	fi
+
+# セッションモジュールのカバレッジ測定
+# 注意: sb-coverはコンパイル時にカバレッジ情報を埋め込むため、
+# twitter-likeプロジェクトのFASLキャッシュをクリアして再コンパイルする
+test-coverage-session:
+	@echo "Running session tests with coverage measurement..."
+	@echo "Clearing twitter-like FASL cache..."
+	@find $(CACHE_DIR)/common-lisp -path "*twitter-like*" -name "*.fasl" -delete 2>/dev/null || true
+	@mkdir -p coverage $(CACHE_DIR) $(QL_LOCAL_PROJECTS)
+	@if [ -f .env.test ]; then \
+		XDG_CACHE_HOME=$(CACHE_DIR) QL_LOCAL_PROJECTS=$(QL_LOCAL_PROJECTS) sbcl \
+		     --eval '(require :sb-cover)' \
+		     --eval '(declaim (optimize sb-cover:store-coverage-data))' \
+		     --eval '(ql:quickload :cl-dotenv)' \
+		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
+		     --eval '(cl-dotenv:load-env ".env.test")' \
+		     --eval '(ql:quickload :twitter-like/tests)' \
+		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.session))' \
+		     --eval '(sb-cover:report "coverage/")' \
+		     --quit && \
+		echo "✓ Coverage report generated in coverage/" && \
+		echo "  Open coverage/cover-index.html to view results"; \
 	else \
 		echo "Error: .env.test file not found"; \
 		exit 1; \

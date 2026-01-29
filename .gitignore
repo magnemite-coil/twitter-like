@@ -140,3 +140,4 @@ certificates/
 # Frontend - Build artifacts
 static/*
 !static/.gitkeep
+coverage/
