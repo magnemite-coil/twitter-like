@@ -125,17 +125,6 @@
     (let ((key (format nil "session:~A" session-id)))
       (red:del key))))
 
-(defun session-exists-p (key)
-  "セッションキーがRedisに存在するかを判定
-  red:existsはライブラリバージョンにより0/1またはT/NILを返すため、
-  どちらにも対応する安全な判定を行う"
-  (let ((result (red:exists key)))
-    (cond
-      ((null result) nil)
-      ((and (integerp result) (plusp result)) t)
-      ((eq result t) t)
-      (t nil))))
-
 ;; touch-session用Luaスクリプト（TOCTOU防止のため原子的に実行）
 ;; EXISTS→HSETの間にセッションが削除/期限切れになった場合、
 ;; TTLなしの新しいキーが作成されることを防ぐ
