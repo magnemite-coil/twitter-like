@@ -93,5 +93,7 @@
                  (:file "test-cors" :depends-on ("util"))
                  (:file "test-security" :depends-on ("util"))
                  ;; ハンドラーユニットテスト
-                 (:file "test-csp-report"))))
+                 (:file "test-csp-report")
+                 ;; Health Handler ユニットテスト（サーバー起動不要、独自setup）
+                 (:file "test-health-unit"))))
   :perform (test-op (op c) (symbol-call :rove :run c)))
