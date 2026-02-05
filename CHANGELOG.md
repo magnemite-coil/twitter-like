@@ -93,6 +93,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `test-coverage`: Full test suite with sb-cover HTML report generation
   - `test-coverage-session`: Session module focused coverage measurement
 
+- **Health Handler Unit Tests** (test/test-health-unit.lisp)
+  - Core function extraction: `collect-health-data` with dependency injection pattern
+  - DB/Redis failure tests (503 unhealthy response)
+  - Disk usage degraded state tests (200 with status=degraded for >90%)
+  - Disk/memory check error handling tests (status=unknown)
+  - Status priority regression tests (unhealthy > degraded > healthy)
+  - Boundary value tests (exactly 90% disk usage)
+  - Expression coverage improved from 61.2% to 86.0%
+  - Branch coverage improved from 37.5% to 100%
+  - Total 13 unit tests covering collect-health-data edge cases
+
 ### Changed
 
 - **Timestamp Format** (Breaking Change)
@@ -108,6 +119,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Session Middleware** (src/middleware/session.lisp)
   - Fix `DEFCONSTANT-UNEQL` error on system reload by changing Lua script definition from `defconstant` to `defparameter`
   - String literals in Common Lisp are not `eql` across recompilations, causing SBCL to reject redefinition
+
+- **Health Handler** (src/handler/health.lisp)
+  - Fix status priority bug: `unhealthy` status was being overwritten by `degraded` when disk usage exceeded 90%
+  - Status priority is now correctly enforced: unhealthy > degraded > healthy
+  - Refactored to extract `collect-health-data` core function for testability
 
 ### Security
 
