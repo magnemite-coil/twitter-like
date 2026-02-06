@@ -3,7 +3,8 @@
   (:import-from :com.inuoe.jzon
                 :stringify)
   (:export :response-success
-           :response-error))
+           :response-error
+           :content-length-value))
 
 (in-package :twitter-like.util.response)
 
