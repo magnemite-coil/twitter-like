@@ -104,6 +104,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Branch coverage improved from 37.5% to 100%
   - Total 13 unit tests covering collect-health-data edge cases
 
+- **Rate-Limit Unit Tests** (test/test-rate-limit.lisp, test/test-rate-limit-redis.lisp)
+  - Pure function tests: `ensure-integer`, `format-ratelimit-header`, `format-ratelimit-policy-header`, `build-ratelimit-headers` (34 cases)
+  - Redis integration tests: `check-and-increment`, `increment`, `decrement` with 12-layer security guard (44 cases)
+  - IETF draft-09/10 compliant RateLimit header verification
+  - increment-on mode tests (:always, :check, :optimistic, :manual) with ZSET count verification
+  - Window expiration tests using ZADD (no sleep, flaky-free)
+  - Total 78 test cases covering rate-limit module
+
 ### Changed
 
 - **Timestamp Format** (Breaking Change)

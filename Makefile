@@ -1,4 +1,4 @@
-.PHONY: test test-config test-db test-health test-setup test-teardown test-clean test-crypto test-session test-request test-cors test-security test-csp-report test-auth-validation test-auth-service test-coverage test-coverage-session
+.PHONY: test test-config test-db test-health test-setup test-teardown test-clean test-crypto test-session test-request test-cors test-security test-csp-report test-auth-validation test-auth-service test-coverage test-coverage-session test-rate-limit test-rate-limit-redis
 
 CACHE_DIR := $(PWD)/var/cache
 QL_LOCAL_PROJECTS := $(PWD)/vendor
@@ -266,6 +266,42 @@ test-coverage-session:
 		     --quit && \
 		echo "✓ Coverage report generated in coverage/" && \
 		echo "  Open coverage/cover-index.html to view results"; \
+	else \
+		echo "Error: .env.test file not found"; \
+		exit 1; \
+	fi
+
+# レート制限テスト（純粋関数のみ、Redis不要）
+# 既存パターン test-crypto に準拠（.env.test読み込みあり）
+test-rate-limit:
+	@echo "Running rate-limit pure function tests..."
+	@if [ -f .env.test ]; then \
+		mkdir -p $(CACHE_DIR) $(QL_LOCAL_PROJECTS) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) QL_LOCAL_PROJECTS=$(QL_LOCAL_PROJECTS) sbcl \
+		     --eval '(ql:quickload :cl-dotenv)' \
+		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
+		     --eval '(cl-dotenv:load-env ".env.test")' \
+		     --eval '(ql:quickload :twitter-like/tests)' \
+		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.rate-limit))' \
+		     --quit; \
+	else \
+		echo "Error: .env.test file not found"; \
+		exit 1; \
+	fi
+
+# レート制限Redis統合テスト（Redis必要）
+# 既存パターン test-session に準拠
+test-rate-limit-redis:
+	@echo "Running rate-limit Redis integration tests..."
+	@if [ -f .env.test ]; then \
+		mkdir -p $(CACHE_DIR) $(QL_LOCAL_PROJECTS) && \
+		XDG_CACHE_HOME=$(CACHE_DIR) QL_LOCAL_PROJECTS=$(QL_LOCAL_PROJECTS) sbcl \
+		     --eval '(ql:quickload :cl-dotenv)' \
+		     --eval "(pushnew (truename \".\") asdf:*central-registry* :test #'equal)" \
+		     --eval '(cl-dotenv:load-env ".env.test")' \
+		     --eval '(ql:quickload :twitter-like/tests)' \
+		     --eval '(rove:run-suite (rove:find-suite :twitter-like-test.rate-limit-redis))' \
+		     --quit; \
 	else \
 		echo "Error: .env.test file not found"; \
 		exit 1; \
