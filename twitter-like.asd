@@ -95,5 +95,10 @@
                  ;; ハンドラーユニットテスト
                  (:file "test-csp-report")
                  ;; Health Handler ユニットテスト（サーバー起動不要、独自setup）
-                 (:file "test-health-unit"))))
+                 (:file "test-health-unit")
+                 ;; レート制限テスト
+                 ;; 純粋関数テスト（test-crypto.lisp パターン、setupなし）
+                 (:file "test-rate-limit")
+                 ;; Redis統合テスト（test-session.lisp パターン、独自setup）
+                 (:file "test-rate-limit-redis"))))
   :perform (test-op (op c) (symbol-call :rove :run c)))
